@@ -39,16 +39,23 @@ VL53L0X RToF;
 
 bool debug = true;        // Set to true for debugging
 #define TURN_SPEED 100    // Speed for turning
-#define FORWARD_SPEED 255 // Speed for moving forward
+#define FORWARD_SPEED 200 // Speed for moving forward
 #define SEARCH_SPEED 50
 #define TURN_DELAY 150
 #define BACK_SPEED 150 // Speed for moving backward
 int SEARCH_RANGE = 500; // Range to search for opponent in mm
+int turnDirection = 0; // 0: left, 1: right
 
 #define BLE_SEND_DELAY 100
 
 // Millies to check delay to send bluetooth data
 unsigned long sendTime = millis();
+
+// Non-blocking timing variables
+unsigned long lastEdgeAvoidTime = 0;
+unsigned long lastTurnTime = 0;
+bool isAvoidingEdge = false;
+bool isTurning = false;
 
 uint16_t FLToF_val, FRToF_val, LToF_val, RToF_val;
 
@@ -169,66 +176,90 @@ void avoidEdge() {
   RIR_val = digitalRead(IR_RIGHT);
   BIR_val = digitalRead(IR_BACK);
 
+  // Check if we're currently in an avoidance maneuver
+  if (isAvoidingEdge) {
+    if (millis() - lastEdgeAvoidTime >= 200) {
+      isAvoidingEdge = false; // End avoidance maneuver
+      motorControl(0, 0); // Brief stop before next action
+    }
+    return; // Continue current avoidance maneuver
+  }
+
   // All sensors on black (safe)
   if (LIR_val == HIGH && RIR_val == HIGH && BIR_val == HIGH) {
     return;
   }
 
+  // Start edge avoidance maneuver
+  isAvoidingEdge = true;
+  lastEdgeAvoidTime = millis();
+
   // Both front sensors on white (danger: fully outside)
   if (LIR_val == LOW && RIR_val == LOW) {
     motorControl(-FORWARD_SPEED, -FORWARD_SPEED); // Reverse straight
-    delay(200);
     return;
   }
 
   // Left sensor on white (left wheel outside)
   if (LIR_val == LOW) {
     motorControl(-FORWARD_SPEED, -100); // Reverse right
-    delay(200);
     return;
   }
 
   // Right sensor on white (right wheel outside)
   if (RIR_val == LOW) {
     motorControl(-100, -FORWARD_SPEED); // Reverse left
-    delay(200);
     return;
   }
 
   // Back sensor on white and at least one front sensor on white (almost out)
   if (BIR_val == LOW && (LIR_val == LOW || RIR_val == LOW)) {
     motorControl(-BACK_SPEED, -BACK_SPEED); // Reverse
-    delay(200);
     return;
   }
 
   // Only back sensor on white (back is out, front is in)
   if (BIR_val == LOW && LIR_val == HIGH && RIR_val == HIGH) {
     motorControl(FORWARD_SPEED, FORWARD_SPEED); // Move forward to get back in
-    delay(200);
     return;
-
   }
 }
 
 void searchOpponent() {
   // Rotate in place to search for opponent
-  Serial.println("Searching for opponent...");
-  motorControl(SEARCH_SPEED, -SEARCH_SPEED);
+  if (turnDirection == 0) {
+    // Turn left
+    motorControl(-TURN_SPEED, TURN_SPEED);
+  } else {
+    // Turn right
+    motorControl(TURN_SPEED, -TURN_SPEED);
+  }
 }
 
 void attackTarget(const ToFResult &tof) {
+  // Check if we're currently in a turn maneuver
+  if (isTurning) {
+    if (millis() - lastTurnTime >= TURN_DELAY) {
+      isTurning = false; // End turn maneuver
+    }
+    return; // Continue current turn
+  }
+
   if (tof.FL_inRange || tof.FR_inRange) {
     // Opponent detected in front, move forward
     motorControl(FORWARD_SPEED, FORWARD_SPEED);
   } else if (tof.L_inRange) {
     // Opponent detected on left, turn left
-    motorControl(TURN_SPEED, -TURN_SPEED);
-    delay(TURN_DELAY);
+    turnDirection = 0;
+    motorControl(-TURN_SPEED, TURN_SPEED);
+    isTurning = true;
+    lastTurnTime = millis();
   } else if (tof.R_inRange) {
     // Opponent detected on right, turn right
-    motorControl(-TURN_SPEED, TURN_SPEED);
-    delay(TURN_DELAY);
+    turnDirection = 1;
+    motorControl(TURN_SPEED, -TURN_SPEED);
+    isTurning = true;
+    lastTurnTime = millis();
   }
 }
 
@@ -241,6 +272,7 @@ void setup() {
   }
 
   Wire.begin(VL53L0X_SDA, VL53L0X_SCL); // Initialize I2C for VL53L0X sensors
+  Wire.setClock(400000); // Increase I2C speed to 400kHz for faster sensor reading
   SerialBT.begin("SumoBot");            // Start Bluetooth with device name "SumoBot"
 
   pinMode(DIR1, OUTPUT);
@@ -281,42 +313,49 @@ void loop() {
     }
   }
 
-    if(!isRunning) {
-      motorControl(0, 0); // Stop the motors
-      return; // Exit the loop if robot is not running
-    }
+  if(!isRunning) {
+    motorControl(0, 0); // Stop the motors
+    return; // Exit the loop if robot is not running
+  }
 
+  // PRIORITY 1: Edge avoidance (always check first)
   avoidEdge();
+  
+  // If we're avoiding edge, don't do anything else
+  if (isAvoidingEdge) {
+    return;
+  }
 
-  // check all ToF sensors
+  // PRIORITY 2: Attack or search (only if not avoiding edge)
   ToFResult tof = checkToFSensors(SEARCH_RANGE);
   
-  // Attach target if any sensor detects an opponent
   if(tof.inRange) {
     attackTarget(tof); // Attack if any sensor detects an opponent
-  }else {
+  } else if (!isTurning) { // Only search if not in a turn maneuver
     searchOpponent(); // Search for opponent if not detected
   }
 
-  // Send ToF data to Bluetooth
-  if (millis() - sendTime >= BLE_SEND_DELAY) {
-    sendDatatoBluetooth(tof);
-    sendTime = millis(); // Update the last send time
-  }
+  // // Send ToF data to Bluetooth
+  // if (millis() - sendTime >= BLE_SEND_DELAY) {
+  //   sendDatatoBluetooth(tof);
+  //   sendTime = millis(); // Update the last send time
+  // }
   
 }
 
 
 // void loop() {
-//   // Test all three IR sensors
+//   // Check all IR Sensors
 //   LIR_val = digitalRead(IR_LEFT);
 //   RIR_val = digitalRead(IR_RIGHT);
 //   BIR_val = digitalRead(IR_BACK);
-//   Serial.print("Left IR: ");
+//   Serial.print("IR_L: ");
 //   Serial.print(LIR_val);
-//   Serial.print(" | Right IR: ");
+//   Serial.print(", IR_R: ");
 //   Serial.print(RIR_val);
-//   Serial.print(" | Back IR: ");
-//   Serial.println(BIR_val);
+//   Serial.print(", IR_B: ");
+//   Serial.print(BIR_val);
+//   Serial.println();
+
 // }
 
