@@ -62,7 +62,7 @@ uint16_t FLToF_val, FRToF_val, LToF_val, RToF_val;
 bool LIR_val, RIR_val, BIR_val;
 
 // Variable to keep track if the robot is running or not
-bool isRunning = false;
+bool isRunning = true;
 
 struct ToFResult
 {
@@ -300,16 +300,16 @@ void setup() {
 
 
 void loop() {
-  // Check if Bluetooth is connected
+
   if(SerialBT.available()) {
     String command = SerialBT.readStringUntil('\n');
     command.trim(); // Remove any leading/trailing whitespace
-    if(command == "1") {
+    if (command == "1") {
       isRunning = true; // Start the robot
-      SerialBT.println("Robot started");
-    } else if(command == "0") {
-      isRunning = false;
-      SerialBT.println("Robot stopped");
+      Serial.println("Robot started");
+    } else if (command == "0") {
+      isRunning = false; // Stop the robot
+      Serial.println("Robot stopped");
     }
   }
 
@@ -335,27 +335,10 @@ void loop() {
     searchOpponent(); // Search for opponent if not detected
   }
 
-  // // Send ToF data to Bluetooth
-  // if (millis() - sendTime >= BLE_SEND_DELAY) {
-  //   sendDatatoBluetooth(tof);
-  //   sendTime = millis(); // Update the last send time
-  // }
-  
+  // Send ToF data to Bluetooth
+  if (millis() - sendTime >= BLE_SEND_DELAY) {
+    sendDatatoBluetooth(tof);
+    sendTime = millis(); // Update the last send time
+  }
 }
-
-
-// void loop() {
-//   // Check all IR Sensors
-//   LIR_val = digitalRead(IR_LEFT);
-//   RIR_val = digitalRead(IR_RIGHT);
-//   BIR_val = digitalRead(IR_BACK);
-//   Serial.print("IR_L: ");
-//   Serial.print(LIR_val);
-//   Serial.print(", IR_R: ");
-//   Serial.print(RIR_val);
-//   Serial.print(", IR_B: ");
-//   Serial.print(BIR_val);
-//   Serial.println();
-
-// }
 
