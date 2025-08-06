@@ -9,7 +9,7 @@ BluetoothSerial SerialBT;
 
 // Rhino Motor Driver Pins
 #define DIR1 12
-#define PWM1 13
+#define PWM1 27
 #define DIR2 14
 #define PWM2 15
 #define SLEEP1 26
@@ -20,17 +20,17 @@ BluetoothSerial SerialBT;
 #define PWM_RESOLUTION 8    // 8-bit resolution (0-255)
 
 // IR Pins
-#define IR_LEFT 25
-#define IR_RIGHT 4
+#define IR_LEFT 33
+#define IR_RIGHT 32
 #define IR_BACK 34
 
 // VL53L0X Pins
 #define VL53L0X_SDA 21
 #define VL53L0X_SCL 22
-#define VL53L0X_XSHUT1 32
-#define VL53L0X_XSHUT2 33
-#define VL53L0X_XSHUT4 19
-#define VL53L0X_XSHUT3 18
+#define VL53L0X_XSHUT1 19   // For Left ToF sensor
+#define VL53L0X_XSHUT2 13   // For Front Left ToF sensor
+#define VL53L0X_XSHUT4 26   // For Front Right ToF sensor
+#define VL53L0X_XSHUT3 18   // For Right ToF sensor
 
 VL53L0X FLToF;
 VL53L0X FRToF;
@@ -66,15 +66,15 @@ bool isRunning = true;
 
 struct ToFResult
 {
-  bool inRange;
-  bool FL_inRange;
-  bool FR_inRange;
-  bool L_inRange;
-  bool R_inRange;
-  uint16_t FL;
-  uint16_t FR;
-  uint16_t L;
-  uint16_t R;
+  bool inRange;     // True if any sensor is in range
+  bool FL_inRange;  // True if front left sensor is in range
+  bool FR_inRange;  // True if front right sensor is in range
+  bool L_inRange;   // True if left sensor is in range
+  bool R_inRange;   // True if right sensor is in range
+  uint16_t FL;      // Distance from front left sensor
+  uint16_t FR;      // Distance from front right sensor
+  uint16_t L;       // Distance from left sensor
+  uint16_t R;       // Distance from right sensor
 };
 
 // Function prototypes
@@ -89,13 +89,13 @@ void attackTarget(const ToFResult &tof);
 void initSensor(VL53L0X &sensor, uint8_t address, int xshutPin) {
   pinMode(xshutPin, OUTPUT);
   digitalWrite(xshutPin, LOW);
-  delay(10);
+  delay(100);
   digitalWrite(xshutPin, HIGH);
-  delay(10);
+  delay(100);
   sensor.init();
   sensor.setAddress(address);
   sensor.startContinuous();
-  delay(10); // Allow sensor to stabilize
+  delay(100); // Allow sensor to stabilize
 }
 
 // Function to send debug values to Bluetooth
@@ -167,8 +167,8 @@ void Motor2(int speed) {
 }
 
 void motorControl(int leftSpeed, int rightSpeed) {
-  Motor1(leftSpeed);
-  Motor2(rightSpeed);
+  Motor1(rightSpeed);
+  Motor2(leftSpeed);
 }
 
 void avoidEdge() {
@@ -289,10 +289,11 @@ void setup() {
   ledcAttachChannel(PWM2, PWM_FREQUENCY, PWM_RESOLUTION, 1); // Attach PWM2 to channel 1
 
   // Initialize ToF sensors
-  initSensor(FLToF, 0x31, VL53L0X_XSHUT1);
-  initSensor(FRToF, 0x30, VL53L0X_XSHUT2);
-  initSensor(LToF, 0x33, VL53L0X_XSHUT3);
-  initSensor(RToF, 0x34, VL53L0X_XSHUT4);
+  initSensor(LToF, 0x31, VL53L0X_XSHUT1);
+  initSensor(FLToF, 0x30, VL53L0X_XSHUT2);
+  initSensor(RToF, 0x33, VL53L0X_XSHUT3);
+  initSensor(FRToF, 0x34, VL53L0X_XSHUT4);
+  delay(100); // Allow sensors to stabilize
 
 }
 
@@ -342,3 +343,20 @@ void loop() {
   }
 }
 
+// void loop() {
+//   // Test all Tof sensors
+//   FLToF_val = FLToF.readRangeContinuousMillimeters();
+//   FRToF_val = FRToF.readRangeContinuousMillimeters();
+//   LToF_val = LToF.readRangeContinuousMillimeters();
+//   RToF_val = RToF.readRangeContinuousMillimeters();
+
+//   Serial.print("FL: ");
+//   Serial.print(FLToF_val);
+//   Serial.print(" FR: ");
+//   Serial.print(FRToF_val);
+//   Serial.print(" L: ");
+//   Serial.print(LToF_val);
+//   Serial.print(" R: ");
+//   Serial.print(RToF_val);
+//   Serial.println();
+// }
