@@ -1,11 +1,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <VL53L0X.h>
-#include <BluetoothSerial.h>
 #include <ArduinoJson.h>
-
-// Bluetooth Serial
-BluetoothSerial SerialBT;
 
 // Rhino Motor Driver Pins
 #define DIR1 12
@@ -96,20 +92,6 @@ void initSensor(VL53L0X &sensor, uint8_t address, int xshutPin) {
   sensor.setAddress(address);
   sensor.startContinuous();
   delay(100); // Allow sensor to stabilize
-}
-
-// Function to send debug values to Bluetooth
-void sendDatatoBluetooth(const ToFResult &tof) {
-  JsonDocument doc;
-  doc["FL"] = tof.FL_inRange;
-  doc["FR"] = tof.FR_inRange;
-  doc["L"] = tof.L_inRange;
-  doc["R"] = tof.R_inRange;
-  doc["IR_R"] = RIR_val;
-  doc["IR_L"] = LIR_val;
-  doc["IR_B"] = BIR_val;
-  serializeJson(doc, SerialBT); // Send JSON data over Bluetooth
-  SerialBT.println();
 }
 
 ToFResult checkToFSensors(uint16_t rangeLimit) {
@@ -266,14 +248,9 @@ void attackTarget(const ToFResult &tof) {
 void setup() {
   // Initialize serial communication for debugging
   Serial.begin(115200);
-  while (!Serial)
-  {
-    ; // Wait for serial port to connect. Needed for native USB
-  }
 
   Wire.begin(VL53L0X_SDA, VL53L0X_SCL); // Initialize I2C for VL53L0X sensors
   Wire.setClock(400000); // Increase I2C speed to 400kHz for faster sensor reading
-  SerialBT.begin("SumoBot");            // Start Bluetooth with device name "SumoBot"
 
   pinMode(DIR1, OUTPUT);
   pinMode(PWM1, OUTPUT);
@@ -301,19 +278,6 @@ void setup() {
 
 
 void loop() {
-
-  if(SerialBT.available()) {
-    String command = SerialBT.readStringUntil('\n');
-    command.trim(); // Remove any leading/trailing whitespace
-    if (command == "1") {
-      isRunning = true; // Start the robot
-      Serial.println("Robot started");
-    } else if (command == "0") {
-      isRunning = false; // Stop the robot
-      Serial.println("Robot stopped");
-    }
-  }
-
   if(!isRunning) {
     motorControl(0, 0); // Stop the motors
     return; // Exit the loop if robot is not running
@@ -334,12 +298,6 @@ void loop() {
     attackTarget(tof); // Attack if any sensor detects an opponent
   } else if (!isTurning) { // Only search if not in a turn maneuver
     searchOpponent(); // Search for opponent if not detected
-  }
-
-  // Send ToF data to Bluetooth
-  if (millis() - sendTime >= BLE_SEND_DELAY) {
-    sendDatatoBluetooth(tof);
-    sendTime = millis(); // Update the last send time
   }
 }
 
