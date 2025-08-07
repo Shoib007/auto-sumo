@@ -33,35 +33,38 @@ VL53L0X FRToF;
 VL53L0X LToF;
 VL53L0X RToF;
 
-bool debug = true;        // Set to true for debugging
-#define TURN_SPEED 100    // Speed for turning
-#define FORWARD_SPEED 200 // Speed for moving forward
-#define SEARCH_SPEED 50
-#define TURN_DELAY 150
-#define BACK_SPEED 150 // Speed for moving backward
-int SEARCH_RANGE = 500; // Range to search for opponent in mm
-int turnDirection = 0; // 0: left, 1: right
+bool debug = true;          // Set to true for debugging
+#define TURN_SPEED 100      // Speed for turning
+#define FORWARD_SPEED 250   // Speed for moving forward
+#define SEARCH_SPEED 30     // Speed for searching
+#define TURN_DELAY 100      // Delay for turning in milliseconds
+#define BACK_SPEED 150      // Speed for moving backward
+int SEARCH_RANGE = 1000;    // Range to search for opponent in mm
+int turnDirection = 0;      // 0: left, 1: right
 
 #define BLE_SEND_DELAY 100
-
-// Millies to check delay to send bluetooth data
-unsigned long sendTime = millis();
 
 // Non-blocking timing variables
 unsigned long lastEdgeAvoidTime = 0;
 unsigned long lastTurnTime = 0;
 bool isAvoidingEdge = false;
-bool isTurning = false;
 
 uint16_t FLToF_val, FRToF_val, LToF_val, RToF_val;
 
 bool LIR_val, RIR_val, BIR_val;
 
+// Global variables to add
+unsigned long lastIRCheckTime = 0;
+const int IR_CHECK_INTERVAL = 5; // Check IR sensors every 5ms (200Hz)
+int edgeAvoidanceSpeed = BACK_SPEED; // Default edge avoidance speed
+int edgeAvoidanceTime = 400; // Increased avoidance time (ms)
+bool wasNearEdge = false; // Track if we were previously near edge
+
+
 // Variable to keep track if the robot is running or not
 bool isRunning = true;
 
-struct ToFResult
-{
+struct ToFResult {
   bool inRange;     // True if any sensor is in range
   bool FL_inRange;  // True if front left sensor is in range
   bool FR_inRange;  // True if front right sensor is in range
@@ -154,55 +157,90 @@ void motorControl(int leftSpeed, int rightSpeed) {
 }
 
 void avoidEdge() {
+  // Fast IR sampling - check IR sensors more frequently than other sensors
+  if (millis() - lastIRCheckTime < IR_CHECK_INTERVAL && !isAvoidingEdge) {
+    return; // Skip if we checked recently and aren't in avoidance mode
+  }
+  lastIRCheckTime = millis();
+  
+  // Read all IR sensors
   LIR_val = digitalRead(IR_LEFT);
   RIR_val = digitalRead(IR_RIGHT);
   BIR_val = digitalRead(IR_BACK);
-
-  // Check if we're currently in an avoidance maneuver
+  
+  // Record previous state for transition detection
+  bool wasAvoiding = isAvoidingEdge;
+  
+  // Edge avoidance in progress
   if (isAvoidingEdge) {
-    if (millis() - lastEdgeAvoidTime >= 200) {
-      isAvoidingEdge = false; // End avoidance maneuver
+    // Use dynamic timing based on severity
+    unsigned long avoidanceTime = (LIR_val == LOW && RIR_val == LOW) ? edgeAvoidanceTime * 1.5 : edgeAvoidanceTime;
+                                  
+    if (millis() - lastEdgeAvoidTime >= avoidanceTime) {
+      isAvoidingEdge = false;
       motorControl(0, 0); // Brief stop before next action
+      
+      // Always turn toward center after edge avoidance
+      // If both front sensors detected edge, pick opposite of last turn direction
+      if (LIR_val == LOW && RIR_val == LOW) {
+        turnDirection = !turnDirection; // Switch directions
+      }
+    }
+    
+    // Continue checking sensors during avoidance for adaptive response
+    if (LIR_val == LOW || RIR_val == LOW) {
+      // Still on/near edge during avoidance - extend the avoidance time
+      lastEdgeAvoidTime = millis() - (avoidanceTime / 2); // Reset halfway through
     }
     return; // Continue current avoidance maneuver
   }
 
   // All sensors on black (safe)
   if (LIR_val == HIGH && RIR_val == HIGH && BIR_val == HIGH) {
+    // Reset wasNearEdge if we're safely in the arena
+    wasNearEdge = false;
     return;
   }
-
+  
   // Start edge avoidance maneuver
   isAvoidingEdge = true;
   lastEdgeAvoidTime = millis();
-
-  // Both front sensors on white (danger: fully outside)
+  
+  // Edge detection with dynamic speed - more aggressive reversal when more sensors detect edge
+  int reversePower = BACK_SPEED;
   if (LIR_val == LOW && RIR_val == LOW) {
-    motorControl(-FORWARD_SPEED, -FORWARD_SPEED); // Reverse straight
+    // Both front sensors on white - critical situation!
+    reversePower = BACK_SPEED + 50; // More aggressive backup
+    motorControl(-reversePower, -reversePower);
+    Serial.println("CRITICAL: Both front sensors detect edge!");
     return;
   }
 
   // Left sensor on white (left wheel outside)
   if (LIR_val == LOW) {
-    motorControl(-FORWARD_SPEED, -100); // Reverse right
+    motorControl(-reversePower, -(reversePower/2)); // More aggressive turn
+    Serial.println("Edge detected on LEFT");
     return;
   }
 
   // Right sensor on white (right wheel outside)
   if (RIR_val == LOW) {
-    motorControl(-100, -FORWARD_SPEED); // Reverse left
+    motorControl(-(reversePower/2), -reversePower); // More aggressive turn
+    Serial.println("Edge detected on RIGHT");
     return;
   }
 
-  // Back sensor on white and at least one front sensor on white (almost out)
-  if (BIR_val == LOW && (LIR_val == LOW || RIR_val == LOW)) {
-    motorControl(-BACK_SPEED, -BACK_SPEED); // Reverse
-    return;
-  }
-
-  // Only back sensor on white (back is out, front is in)
-  if (BIR_val == LOW && LIR_val == HIGH && RIR_val == HIGH) {
-    motorControl(FORWARD_SPEED, FORWARD_SPEED); // Move forward to get back in
+  // Back sensor on white
+  if (BIR_val == LOW) {
+    // If back sensor is on white and front sensors are on black, move forward
+    if (LIR_val == HIGH && RIR_val == HIGH) {
+      motorControl(FORWARD_SPEED, FORWARD_SPEED);
+      Serial.println("Edge detected on BACK only - moving forward");
+    } else {
+      // Some front sensor also detects white - emergency stop and reverse direction
+      motorControl(-reversePower, -reversePower);
+      Serial.println("Edge detected on BACK and FRONT - emergency reverse");
+    }
     return;
   }
 }
@@ -219,29 +257,22 @@ void searchOpponent() {
 }
 
 void attackTarget(const ToFResult &tof) {
-  // Check if we're currently in a turn maneuver
-  if (isTurning) {
-    if (millis() - lastTurnTime >= TURN_DELAY) {
-      isTurning = false; // End turn maneuver
-    }
-    return; // Continue current turn
-  }
-
   if (tof.FL_inRange || tof.FR_inRange) {
     // Opponent detected in front, move forward
     motorControl(FORWARD_SPEED, FORWARD_SPEED);
-  } else if (tof.L_inRange) {
+  } else if (tof.L_inRange && tof.R_inRange) {
+    // Opponent detected on both sides means he is opened the flag
+    // so run straight forward to hit the opponent
+    motorControl(FORWARD_SPEED, FORWARD_SPEED);
+  }
+  else if (tof.L_inRange) {
     // Opponent detected on left, turn left
     turnDirection = 0;
     motorControl(-TURN_SPEED, TURN_SPEED);
-    isTurning = true;
-    lastTurnTime = millis();
   } else if (tof.R_inRange) {
     // Opponent detected on right, turn right
     turnDirection = 1;
     motorControl(TURN_SPEED, -TURN_SPEED);
-    isTurning = true;
-    lastTurnTime = millis();
   }
 }
 
@@ -273,9 +304,7 @@ void setup() {
   delay(100); // Allow sensors to stabilize
 
 }
-
-
-
+  
 
 void loop() {
   if(!isRunning) {
@@ -294,27 +323,19 @@ void loop() {
   // PRIORITY 2: Attack or search (only if not avoiding edge)
   ToFResult tof = checkToFSensors(SEARCH_RANGE);
   
-  if(tof.inRange) {
-    attackTarget(tof); // Attack if any sensor detects an opponent
-  } else if (!isTurning) { // Only search if not in a turn maneuver
-    searchOpponent(); // Search for opponent if not detected
+  if (tof.inRange) {
+    // Check edge sensors one more time before aggressive attack moves
+    // This double-check helps prevent missing the edge when chasing opponents
+    LIR_val = digitalRead(IR_LEFT);
+    RIR_val = digitalRead(IR_RIGHT);
+    if (LIR_val == LOW || RIR_val == LOW) {
+      avoidEdge(); // Re-run edge avoidance if we detect an edge
+      return;
+    }
+    
+    attackTarget(tof); // Only attack if edge is clear
+  } else {
+    searchOpponent();
   }
 }
 
-// void loop() {
-//   // Test all Tof sensors
-//   FLToF_val = FLToF.readRangeContinuousMillimeters();
-//   FRToF_val = FRToF.readRangeContinuousMillimeters();
-//   LToF_val = LToF.readRangeContinuousMillimeters();
-//   RToF_val = RToF.readRangeContinuousMillimeters();
-
-//   Serial.print("FL: ");
-//   Serial.print(FLToF_val);
-//   Serial.print(" FR: ");
-//   Serial.print(FRToF_val);
-//   Serial.print(" L: ");
-//   Serial.print(LToF_val);
-//   Serial.print(" R: ");
-//   Serial.print(RToF_val);
-//   Serial.println();
-// }
