@@ -14,8 +14,8 @@ Servo flagServo; // Servo for flag control
 
 // Rhino Motor Driver Pins
 #define DIR1 12
-#define PWM1 27
-#define DIR2 14
+#define PWM1 14
+#define DIR2 27
 #define PWM2 15
 
 // Channel for PWM
