@@ -49,7 +49,6 @@ bool debug = true;        // Set to true for debugging
 int SEARCH_RANGE = 500;  // Range to search for opponent in mm
 int turnDirection = 0;    // 0: left, 1: right
 
-#define BLE_SEND_DELAY 100
 
 // Non-blocking timing variables
 unsigned long lastEdgeAvoidTime = 0;
@@ -72,14 +71,12 @@ bool isRunning = false;
 
 int angle = 90;
 // function to return a random angle of 8 or 160 for servo angle
-int getRandomServoAngle()
-{
+int getRandomServoAngle() {
   // 8 for left, 160 for right
   return random(0, 2) * 152 + 8; // Returns either 8 or 160
 }
 
-struct ToFResult
-{
+struct ToFResult {
   bool inRange;    // True if any sensor is in range
   bool FL_inRange; // True if front left sensor is in range
   bool FR_inRange; // True if front right sensor is in range
@@ -93,30 +90,42 @@ struct ToFResult
 
 ToFResult tof;
 
-// Function prototypes
-void Motor1(int speed);
-void Motor2(int speed);
-void motorControl(int leftSpeed, int rightSpeed);
-void avoidEdge();
-void searchOpponent();
-void attackTarget(const ToFResult &tof);
+// Mutex for protecting shared tof data between cores
+portMUX_TYPE tofMux = portMUX_INITIALIZER_UNLOCKED;
 
 // Initialize ToF sensors
-void initSensor(VL53L0X &sensor, uint8_t address, int xshutPin)
-{
-  pinMode(xshutPin, OUTPUT);
-  digitalWrite(xshutPin, LOW);
-  delay(100);
-  digitalWrite(xshutPin, HIGH);
-  delay(100);
-  sensor.init();
+void initSensor(VL53L0X &sensor, uint8_t address, int xshutPin) {
+  // Assumes other XSHUTs are held LOW before calling this function.
+  digitalWrite(xshutPin, HIGH); // bring this sensor out of reset
+  delay(50);                    // allow boot
+  Serial.print("Initializing sensor at xshut pin ");
+  Serial.println(xshutPin);
+
+  // Attempt init with a timeout to avoid blocking forever
+  unsigned long start = millis();
+  bool ok = false;
+  while (millis() - start < 1000) { // 1 second timeout
+    if (sensor.init()) { // many VL53L0X libs return bool; if yours doesn't, this still calls init once
+      ok = true;
+      break;
+    }
+    delay(50);
+  }
+
+  if (!ok) {
+    Serial.print("ERROR: sensor.init() timed out at xshut pin ");
+    Serial.println(xshutPin);
+    return;
+  }
+
+  Serial.print("Initialized Sensor at xshut pin ");
+  Serial.println(xshutPin);
   sensor.setAddress(address);
   sensor.startContinuous();
-  delay(100); // Allow sensor to stabilize
+  delay(20); // allow continuous mode to start
 }
 
-ToFResult checkToFSensors(uint16_t rangeLimit)
-{
+ToFResult checkToFSensors(uint16_t rangeLimit) {
   ToFResult result;
 
   result.FL = FLToF.readRangeContinuousMillimeters();
@@ -134,54 +143,44 @@ ToFResult checkToFSensors(uint16_t rangeLimit)
   return result;
 }
 
-void Motor1(int speed)
-{
-  if (speed > 0)
-  {
+void Motor1(int speed) {
+  if (speed > 0) {
     digitalWrite(DIR1, HIGH); // Set direction forward
     ledcWrite(PWM1, speed);   // Set speed
   }
-  else if (speed < 0)
-  {
+  else if (speed < 0) {
     digitalWrite(DIR1, LOW); // Set direction backward
     ledcWrite(PWM1, -speed); // Set speed (convert to positive value)
   }
-  else
-  {
+  else {
     digitalWrite(DIR1, LOW); // Stop the motor
     ledcWrite(PWM1, 0);      // Set speed to 0
   }
 }
 
-void Motor2(int speed)
-{
-  if (speed > 0)
-  {
+void Motor2(int speed) {
+  if (speed > 0) {
     digitalWrite(DIR2, LOW); // Set direction forward
     ledcWrite(PWM2, speed);  // Set speed
   }
-  else if (speed < 0)
-  {
+  else if (speed < 0) {
     digitalWrite(DIR2, HIGH); // Set direction backward
     ledcWrite(PWM2, -speed);  // Set speed (convert to positive value)
   }
-  else
-  {
+  else {
     digitalWrite(DIR2, LOW); // Stop the motor
     ledcWrite(PWM2, 0);      // Set speed to 0
   }
 }
 
-void motorControl(int leftSpeed, int rightSpeed)
-{
+void motorControl(int leftSpeed, int rightSpeed) {
   Motor1(rightSpeed);
   Motor2(leftSpeed);
 }
 
 void avoidEdge() {
   // Fast IR sampling - check IR sensors more frequently than other sensors
-  if (millis() - lastIRCheckTime < IR_CHECK_INTERVAL && !isAvoidingEdge)
-  {
+  if (millis() - lastIRCheckTime < IR_CHECK_INTERVAL && !isAvoidingEdge) {
     return; // Skip if we checked recently and aren't in avoidance mode
   }
   lastIRCheckTime = millis();
@@ -195,27 +194,23 @@ void avoidEdge() {
   bool wasAvoiding = isAvoidingEdge;
 
   // Edge avoidance in progress
-  if (isAvoidingEdge)
-  {
+  if (isAvoidingEdge) {
     // Use dynamic timing based on severity
     unsigned long avoidanceTime = (LIR_val == LOW && RIR_val == LOW) ? edgeAvoidanceTime * 1.5 : edgeAvoidanceTime;
 
-    if (millis() - lastEdgeAvoidTime >= avoidanceTime)
-    {
+    if (millis() - lastEdgeAvoidTime >= avoidanceTime) {
       isAvoidingEdge = false;
       motorControl(0, 0); // Brief stop before next action
 
       // Always turn toward center after edge avoidance
       // If both front sensors detected edge, pick opposite of last turn direction
-      if (LIR_val == LOW && RIR_val == LOW)
-      {
+      if (LIR_val == LOW && RIR_val == LOW) {
         turnDirection = !turnDirection; // Switch directions
       }
     }
 
     // Continue checking sensors during avoidance for adaptive response
-    if (LIR_val == LOW || RIR_val == LOW)
-    {
+    if (LIR_val == LOW || RIR_val == LOW) {
       // Still on/near edge during avoidance - extend the avoidance time
       lastEdgeAvoidTime = millis() - (avoidanceTime / 2); // Reset halfway through
     }
@@ -223,8 +218,7 @@ void avoidEdge() {
   }
 
   // All sensors on black (safe)
-  if (LIR_val == HIGH && RIR_val == HIGH && BIR_val == HIGH)
-  {
+  if (LIR_val == HIGH && RIR_val == HIGH && BIR_val == HIGH) {
     // Reset wasNearEdge if we're safely in the arena
     wasNearEdge = false;
     return;
@@ -236,8 +230,7 @@ void avoidEdge() {
 
   // Edge detection with dynamic speed - more aggressive reversal when more sensors detect edge
   int reversePower = BACK_SPEED;
-  if (LIR_val == LOW && RIR_val == LOW)
-  {
+  if (LIR_val == LOW && RIR_val == LOW) {
     // Both front sensors on white - critical situation!
     reversePower = BACK_SPEED + 50; // More aggressive backup
     motorControl(-reversePower, -reversePower);
@@ -246,32 +239,27 @@ void avoidEdge() {
   }
 
   // Left sensor on white (left wheel outside)
-  if (LIR_val == LOW)
-  {
+  if (LIR_val == LOW) {
     motorControl(-reversePower, -(reversePower / 2)); // More aggressive turn
     Serial.println("Edge detected on LEFT");
     return;
   }
 
   // Right sensor on white (right wheel outside)
-  if (RIR_val == LOW)
-  {
+  if (RIR_val == LOW) {
     motorControl(-(reversePower / 2), -reversePower); // More aggressive turn
     Serial.println("Edge detected on RIGHT");
     return;
   }
 
   // Back sensor on white
-  if (BIR_val == LOW)
-  {
+  if (BIR_val == LOW) {
     // If back sensor is on white and front sensors are on black, move forward
-    if (LIR_val == HIGH && RIR_val == HIGH)
-    {
+    if (LIR_val == HIGH && RIR_val == HIGH) {
       motorControl(FORWARD_SPEED, FORWARD_SPEED);
       Serial.println("Edge detected on BACK only - moving forward");
     }
-    else
-    {
+    else {
       // Some front sensor also detects white - emergency stop and reverse direction
       motorControl(-reversePower, -reversePower);
       Serial.println("Edge detected on BACK and FRONT - emergency reverse");
@@ -280,42 +268,34 @@ void avoidEdge() {
   }
 }
 
-void searchOpponent()
-{
+void searchOpponent() {
   // Rotate in place to search for opponent
-  if (turnDirection == 0)
-  {
+  if (turnDirection == 0) {
     // Turn left
     motorControl(-TURN_SPEED, TURN_SPEED);
   }
-  else
-  {
+  else {
     // Turn right
     motorControl(TURN_SPEED, -TURN_SPEED);
   }
 }
 
-void attackTarget(const ToFResult &tof)
-{
-  if (tof.FL_inRange || tof.FR_inRange)
-  {
+void attackTarget(const ToFResult &tof) {
+  if (tof.FL_inRange || tof.FR_inRange) {
     // Opponent detected in front, move forward
     motorControl(FORWARD_SPEED, FORWARD_SPEED);
   }
-  else if (tof.L_inRange && tof.R_inRange)
-  {
+  else if (tof.L_inRange && tof.R_inRange) {
     // Opponent detected on both sides means he is opened the flag
     // so run straight forward to hit the opponent
     motorControl(FORWARD_SPEED, FORWARD_SPEED);
   }
-  else if (tof.L_inRange)
-  {
+  else if (tof.L_inRange) {
     // Opponent detected on left, turn left
     turnDirection = 0;
     motorControl(-TURN_SPEED, TURN_SPEED);
   }
-  else if (tof.R_inRange)
-  {
+  else if (tof.R_inRange) {
     // Opponent detected on right, turn right
     turnDirection = 1;
     motorControl(TURN_SPEED, -TURN_SPEED);
@@ -325,28 +305,19 @@ void attackTarget(const ToFResult &tof)
 // Global variables for core syncronization
 TaskHandle_t IR_ServoHandler;
 
-void IR_Servo_Task(void *pvParameters)
-{
+void IR_Servo_Task(void *pvParameters) {
   for (;;) {
+    Serial.println(isRunning);
     if (IrReceiver.decode()) {
       if (IrReceiver.decodedIRData.command == 69) {
         isRunning = !isRunning; // Toggle running state
       }
       IrReceiver.resume(); // Prepare to receive the next value
     }
+
     if (isRunning) {
       flagServo.write(angle); // Move flag to the current angle
-      if (tof.FL_inRange && tof.FR_inRange)
-      {
-        // look for the ir signal to stop it
-        if (IrReceiver.decode())
-        {
-          if (IrReceiver.decodedIRData.command == 69) {
-            isRunning = !isRunning; // Toggle running state
-          }
-          IrReceiver.resume(); // Prepare to receive the next value
-        }
-
+      if (tof.FL_inRange || tof.FR_inRange) {
         // If both front sensors detect opponent, lift the flag
         flagServo.write(90); // Lift flag to 90 degrees
       }
@@ -371,10 +342,10 @@ void IR_Servo_Task(void *pvParameters)
   }
 }
 
-void setup()
-{
+void setup() {
   // Initialize serial communication for debugging
   Serial.begin(115200);
+  Serial.println("Starting Sumo Robot...");
   IrReceiver.begin(IR_REMOTE_PIN); // Initialize IR receiver
 
   angle = getRandomServoAngle(); // Get initial random servo angle
@@ -385,10 +356,32 @@ void setup()
 
   Wire.begin(VL53L0X_SDA, VL53L0X_SCL);   // Initialize I2C for VL53L0X sensors
   Wire.setClock(400000);                  // Increase I2C speed to 400kHz for faster sensor reading
+
+  // --- Ensure all VL53L0X XSHUT lines are held LOW first (reset all sensors) ---
+  pinMode(VL53L0X_XSHUT1, OUTPUT);
+  pinMode(VL53L0X_XSHUT2, OUTPUT);
+  pinMode(VL53L0X_XSHUT4, OUTPUT);
+  pinMode(VL53L0X_XSHUT3, OUTPUT);
+
+  digitalWrite(VL53L0X_XSHUT1, LOW);
+  digitalWrite(VL53L0X_XSHUT2, LOW);
+  digitalWrite(VL53L0X_XSHUT4, LOW);
+  digitalWrite(VL53L0X_XSHUT3, LOW);
+  delay(20); // all sensors in reset
+
+  // Now initialize sensors one-by-one (release XSHUT and init)
+  initSensor(LToF, 0x31, VL53L0X_XSHUT1);
+  initSensor(FLToF, 0x30, VL53L0X_XSHUT2);
+  initSensor(RToF, 0x33, VL53L0X_XSHUT3);
+  initSensor(FRToF, 0x34, VL53L0X_XSHUT4);
+  delay(100); // Allow sensors to stabilize
+
+  // Servo setup
   flagServo.setPeriodHertz(50);           // Set servo frequency to 50Hz
   flagServo.attach(SERVO_PIN, 500, 2400); // Attach servo to control flag
-  flagServo.write(angle);                 // Initialize flag position which should be standing initially
+  flagServo.write(angle);                 // Initialize flag position
 
+  // Pins and PWM setup (keep your ledcAttachChannel lines if you prefer)
   pinMode(DIR1, OUTPUT);
   pinMode(PWM1, OUTPUT);
   pinMode(DIR2, OUTPUT);
@@ -398,11 +391,11 @@ void setup()
   pinMode(IR_RIGHT, INPUT);
   pinMode(IR_BACK, INPUT);
 
-  // Configure PWM for the motor driver
+  // Configure PWM for the motor driver (left as your current API)
   ledcAttachChannel(PWM1, PWM_FREQUENCY, PWM_RESOLUTION, 0); // Attach PWM1 to channel 0
   ledcAttachChannel(PWM2, PWM_FREQUENCY, PWM_RESOLUTION, 1); // Attach PWM2 to channel 1
 
-  // Create the task for another core
+  // Create the IR + Servo task after sensors are initialized
   xTaskCreatePinnedToCore(
       IR_Servo_Task, // Task function
       "IRServoTask",
@@ -413,18 +406,11 @@ void setup()
       0                 // Core ID
   );
 
-  // Initialize ToF sensors
-  initSensor(LToF, 0x31, VL53L0X_XSHUT1);
-  initSensor(FLToF, 0x30, VL53L0X_XSHUT2);
-  initSensor(RToF, 0x33, VL53L0X_XSHUT3);
-  initSensor(FRToF, 0x34, VL53L0X_XSHUT4);
-  delay(100); // Allow sensors to stabilize
+  Serial.println("Setup complete.");
 }
 
-void loop()
-{
-  if (!isRunning)
-  {
+void loop() {
+  if (!isRunning) {
     motorControl(0, 0); // Stop the motors
     return;             // Exit the loop if robot is not running
   }
@@ -433,30 +419,26 @@ void loop()
   avoidEdge();
 
   // If we're avoiding edge, don't do anything else
-  if (isAvoidingEdge)
-  {
+  if (isAvoidingEdge) {
     return;
   }
 
   // PRIORITY 2: Attack or search (only if not avoiding edge)
   tof = checkToFSensors(SEARCH_RANGE);
 
-  if (tof.inRange)
-  {
+  if (tof.inRange) {
     // Check edge sensors one more time before aggressive attack moves
     // This double-check helps prevent missing the edge when chasing opponents
     LIR_val = digitalRead(IR_LEFT);
     RIR_val = digitalRead(IR_RIGHT);
-    if (LIR_val == LOW || RIR_val == LOW)
-    {
+    if (LIR_val == LOW || RIR_val == LOW) {
       avoidEdge(); // Re-run edge avoidance if we detect an edge
       return;
     }
 
     attackTarget(tof); // Only attack if edge is clear
   }
-  else
-  {
+  else {
     searchOpponent();
   }
 }
