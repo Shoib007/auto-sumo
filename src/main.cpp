@@ -2,11 +2,15 @@
 #include <Wire.h>
 #include <VL53L0X.h>
 #include <ArduinoJson.h>
-#include <ESP32Servo.h> // Include ESP32Servo for servo control
-#include <IRremote.h>   // Include IRremote for IR remote control
+#include <ESP32Servo.h>      // Include ESP32Servo for servo control
+#include <IRremote.h>        // Include IRremote for IR remote control
+#include <BluetoothSerial.h> // Include BluetoothSerial for BLE communication
 
 // IR Remote Pin
 #define IR_REMOTE_PIN 4 // Pin for IR remote control
+
+// Bluetooth Serial
+BluetoothSerial bluetoothSerial;
 
 // Servo Pins
 #define SERVO_PIN 23
@@ -14,8 +18,8 @@ Servo flagServo; // Servo for flag control
 
 // Rhino Motor Driver Pins
 #define DIR1 12
-#define PWM1 14   // 14 on New robot
-#define DIR2 27   // 27 on New robot
+#define PWM1 14 // 14 on New robot
+#define DIR2 27 // 27 on New robot
 #define PWM2 15
 
 // Channel for PWM
@@ -40,14 +44,14 @@ VL53L0X FRToF;
 VL53L0X LToF;
 VL53L0X RToF;
 
-bool debug = true;          // Set to true for debugging
-#define TURN_SPEED 100      // Speed for turning
+bool debug = true;     // Set to true for debugging
+#define TURN_SPEED 100 // Speed for turning
 // #define FORWARD_SPEED 250 // Speed for moving forward
-#define SEARCH_SPEED 30     // Speed for searching
-#define TURN_DELAY 100      // Delay for turning in milliseconds
-#define BACK_SPEED 150      // Speed for moving backward
-int SEARCH_RANGE = 1500;    // Range to search for opponent in mm
-int turnDirection = 0;      // 0: left, 1: right
+#define SEARCH_SPEED 30  // Speed for searching
+#define TURN_DELAY 100   // Delay for turning in milliseconds
+#define BACK_SPEED 150   // Speed for moving backward
+int SEARCH_RANGE = 1500; // Range to search for opponent in mm
+int turnDirection = 0;   // 0: left, 1: right
 int LEFT_MOTOR_SPEED = 255;
 int RIGHT_MOTOR_SPEED = 255;
 
@@ -74,12 +78,14 @@ bool isRunning = false;
 
 int angle = 90;
 // function to return a random angle of 8 or 160 for servo angle
-int getRandomServoAngle() {
+int getRandomServoAngle()
+{
   // 8 for left, 160 for right
   return random(0, 2) * 152 + 8; // Returns either 8 or 160
 }
 
-struct ToFResult {
+struct ToFResult
+{
   bool inRange;    // True if any sensor is in range
   bool FL_inRange; // True if front left sensor is in range
   bool FR_inRange; // True if front right sensor is in range
@@ -94,7 +100,8 @@ struct ToFResult {
 ToFResult tof;
 
 // Initialize ToF sensors
-void initSensor(VL53L0X &sensor, uint8_t address, int xshutPin) {
+void initSensor(VL53L0X &sensor, uint8_t address, int xshutPin)
+{
   // Assumes other XSHUTs are held LOW before calling this function.
   digitalWrite(xshutPin, HIGH); // bring this sensor out of reset
   delay(50);                    // allow boot
@@ -104,15 +111,18 @@ void initSensor(VL53L0X &sensor, uint8_t address, int xshutPin) {
   // Attempt init with a timeout to avoid blocking forever
   unsigned long start = millis();
   bool ok = false;
-  while (millis() - start < 1000) { // 1 second timeout
-    if (sensor.init()) { // many VL53L0X libs return bool; if yours doesn't, this still calls init once
+  while (millis() - start < 1000)
+  { // 1 second timeout
+    if (sensor.init())
+    { // many VL53L0X libs return bool; if yours doesn't, this still calls init once
       ok = true;
       break;
     }
     delay(50);
   }
 
-  if (!ok) {
+  if (!ok)
+  {
     Serial.print("ERROR: sensor.init() timed out at xshut pin ");
     Serial.println(xshutPin);
     return;
@@ -125,7 +135,8 @@ void initSensor(VL53L0X &sensor, uint8_t address, int xshutPin) {
   delay(20); // allow continuous mode to start
 }
 
-ToFResult checkToFSensors(uint16_t rangeLimit) {
+ToFResult checkToFSensors(uint16_t rangeLimit)
+{
   ToFResult result;
 
   result.FL = FLToF.readRangeContinuousMillimeters();
@@ -143,9 +154,8 @@ ToFResult checkToFSensors(uint16_t rangeLimit) {
   return result;
 }
 
-void Motor1(int speed) {
-  if (speed > 0)
-  {
+void Motor1(int speed) { 
+  if (speed > 0) {
     digitalWrite(DIR1, HIGH); // Set direction forward
     ledcWrite(PWM1, speed);   // Set speed
   }
@@ -290,13 +300,10 @@ void avoidEdge() {
 
 void searchOpponent() {
   // Rotate in place to search for opponent
-  if (turnDirection == 0)
-  {
+  if (turnDirection == 0) {
     // Turn left
     motorControl(-TURN_SPEED, TURN_SPEED);
-  }
-  else
-  {
+  } else {
     // Turn right
     motorControl(TURN_SPEED, -TURN_SPEED);
   }
@@ -310,11 +317,14 @@ void attackTarget(const ToFResult &tof)
 
   if (tof.FL_inRange || tof.FR_inRange)
   {
-    if (turnDirection == 0) {
+    if (turnDirection == 0)
+    {
       // bias to left: slow left, keep right full
       leftSpeed = (LEFT_MOTOR_SPEED > BIAS) ? (LEFT_MOTOR_SPEED - BIAS) : 0;
       rightSpeed = RIGHT_MOTOR_SPEED;
-    } else {
+    }
+    else
+    {
       // bias to right: slow right, keep left full
       leftSpeed = LEFT_MOTOR_SPEED;
       rightSpeed = (RIGHT_MOTOR_SPEED > BIAS) ? (RIGHT_MOTOR_SPEED - BIAS) : 0;
@@ -342,29 +352,77 @@ void attackTarget(const ToFResult &tof)
 
 // Global variables for core syncronization
 TaskHandle_t IR_ServoHandler;
+TaskHandle_t Bluetooth_Task_Handle;
 
 void IR_Servo_Task(void *pvParameters)
 {
-  for (;;) {
-    if (IrReceiver.decode()) {
-      if (IrReceiver.decodedIRData.command == 69) {
+  for (;;)
+  {
+    if (IrReceiver.decode())
+    {
+      if (IrReceiver.decodedIRData.command == 69)
+      {
         isRunning = !isRunning; // Toggle running state
       }
       IrReceiver.resume(); // Prepare to receive the next value
     }
-    if (isRunning) {
+    if (isRunning)
+    {
       flagServo.write(angle); // Move flag to the current angle
       if (tof.FL_inRange || tof.FR_inRange)
       {
         // look for the ir signal to stop it
         if (IrReceiver.decode())
         {
-          if (IrReceiver.decodedIRData.command == 69) {
+          if (IrReceiver.decodedIRData.command == 69)
+          {
             isRunning = !isRunning; // Toggle running state
           }
           IrReceiver.resume(); // Prepare to receive the next value
         }
 
+        // If both front sensors detect opponent, lift the flag
+        flagServo.write(90); // Lift flag to 90 degrees
+      }
+      // if left ToF detects and flag angle is 8 then lift the flag to 90
+      if (tof.L_inRange && angle == 8)
+      {
+        flagServo.write(90);
+        delay(2000);
+        angle = getRandomServoAngle(); // Get a new random angle for the next time
+      }
+      // if right ToF detects and flag angle is 160 then lift the flag to 90
+      else if (tof.R_inRange && angle == 160)
+      {
+        flagServo.write(90);
+        delay(2000);
+        angle = getRandomServoAngle(); // Get a new random angle for the next time
+      }
+    }
+    else
+    {
+      flagServo.write(90);           // flag will be up
+      angle = getRandomServoAngle(); // Get a new random angle for the next time
+    }
+    vTaskDelay(100 / portTICK_PERIOD_MS);
+  }
+}
+
+void Bluetooth_Task(void *pvParameters) {
+  for (;;) {
+    if (bluetoothSerial.available()) {
+      char command = bluetoothSerial.read();
+      // convert to 0 & 1
+      if (command == '1') {
+        isRunning = true;
+      } else if (command == '0') {
+        isRunning = false;
+      }
+    }
+
+    if (isRunning) {
+      flagServo.write(angle); // Move flag to the current angle
+      if (tof.FL_inRange || tof.FR_inRange) {
         // If both front sensors detect opponent, lift the flag
         flagServo.write(90); // Lift flag to 90 degrees
       }
@@ -380,8 +438,7 @@ void IR_Servo_Task(void *pvParameters)
         delay(2000);
         angle = getRandomServoAngle(); // Get a new random angle for the next time
       }
-    }
-    else {
+    } else {
       flagServo.write(90);           // flag will be up
       angle = getRandomServoAngle(); // Get a new random angle for the next time
     }
@@ -392,16 +449,15 @@ void IR_Servo_Task(void *pvParameters)
 void setup() {
   // Initialize serial communication for debugging
   Serial.begin(115200);
-  IrReceiver.begin(IR_REMOTE_PIN); // Initialize IR receiver
-
+  bluetoothSerial.begin("SumoBot"); // Bluetooth device name
   angle = getRandomServoAngle(); // Get initial random servo angle
 
   // FIRST: Allocate specific timers for servo (before any other timer usage)
   ESP32PWM::allocateTimer(2); // Use timer 2 for servo (avoid 0,1 used by motors)
   ESP32PWM::allocateTimer(3); // Use timer 3 as backup
 
-  Wire.begin(VL53L0X_SDA, VL53L0X_SCL);   // Initialize I2C for VL53L0X sensors
-  Wire.setClock(400000);                  // Increase I2C speed to 400kHz for faster sensor reading
+  Wire.begin(VL53L0X_SDA, VL53L0X_SCL); // Initialize I2C for VL53L0X sensors
+  Wire.setClock(400000);                // Increase I2C speed to 400kHz for faster sensor reading
 
   // --- Ensure all VL53L0X XSHUT lines are held LOW first (reset all sensors) ---
   pinMode(VL53L0X_XSHUT1, OUTPUT);
@@ -441,52 +497,56 @@ void setup() {
 
   // Create the task for another core
   xTaskCreatePinnedToCore(
-      IR_Servo_Task, // Task function
-      "IRServoTask",
+      Bluetooth_Task,
+      "BluetoothTask",
       2048,             // Stack size
       NULL,             // Task input parameter
       1,                // Task priority
-      &IR_ServoHandler, // Task handle
+      &Bluetooth_Task_Handle, // Task handle
       0                 // Core ID
   );
 }
 
+// void loop() {
+//   if (!isRunning) {
+//     motorControl(0, 0); // Stop the motors
+//     return;             // Exit the loop if robot is not running
+//   }
+
+//   // PRIORITY 1: Edge avoidance (always check first)
+//   avoidEdge();
+
+//   // If we're avoiding edge, don't do anything else
+//   if (isAvoidingEdge)
+//   {
+//     return;
+//   }
+
+//   // PRIORITY 2: Attack or search (only if not avoiding edge)
+//   tof = checkToFSensors(SEARCH_RANGE);
+
+//   if (tof.inRange)
+//   {
+//     // Check edge sensors one more time before aggressive attack moves
+//     // This double-check helps prevent missing the edge when chasing opponents
+//     LIR_val = digitalRead(IR_LEFT);
+//     RIR_val = digitalRead(IR_RIGHT);
+//     if (LIR_val == LOW || RIR_val == LOW)
+//     {
+//       avoidEdge(); // Re-run edge avoidance if we detect an edge
+//       return;
+//     }
+
+//     attackTarget(tof); // Only attack if edge is clear
+//   }
+//   else
+//   {
+//     searchOpponent();
+//   }
+// }
+
+
 void loop() {
-  if (!isRunning) {
-    motorControl(0, 0); // Stop the motors
-    return;             // Exit the loop if robot is not running
-  }
-
-  // PRIORITY 1: Edge avoidance (always check first)
-  avoidEdge();
-
-  // If we're avoiding edge, don't do anything else
-  if (isAvoidingEdge)
-  {
-    return;
-  }
-
-  // PRIORITY 2: Attack or search (only if not avoiding edge)
-  tof = checkToFSensors(SEARCH_RANGE);
-
-  if (tof.inRange)
-  {
-    // Check edge sensors one more time before aggressive attack moves
-    // This double-check helps prevent missing the edge when chasing opponents
-    LIR_val = digitalRead(IR_LEFT);
-    RIR_val = digitalRead(IR_RIGHT);
-    if (LIR_val == LOW || RIR_val == LOW)
-    {
-      avoidEdge(); // Re-run edge avoidance if we detect an edge
-      return;
-    }
-
-    attackTarget(tof); // Only attack if edge is clear
-  }
-  else
-  {
-    searchOpponent();
-  }
+  Serial.println(isRunning);
 }
-
 
