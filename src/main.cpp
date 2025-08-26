@@ -14,8 +14,8 @@ Servo flagServo; // Servo for flag control
 
 // Rhino Motor Driver Pins
 #define DIR1 12
-#define PWM1 27
-#define DIR2 14
+#define PWM1 14   // 14 on New robot
+#define DIR2 27   // 27 on New robot
 #define PWM2 15
 
 // Channel for PWM
@@ -40,14 +40,16 @@ VL53L0X FRToF;
 VL53L0X LToF;
 VL53L0X RToF;
 
-bool debug = true;        // Set to true for debugging
-#define TURN_SPEED 100    // Speed for turning
-#define FORWARD_SPEED 250 // Speed for moving forward
-#define SEARCH_SPEED 30   // Speed for searching
-#define TURN_DELAY 100    // Delay for turning in milliseconds
-#define BACK_SPEED 150    // Speed for moving backward
-int SEARCH_RANGE = 500;  // Range to search for opponent in mm
-int turnDirection = 0;    // 0: left, 1: right
+bool debug = true;          // Set to true for debugging
+#define TURN_SPEED 100      // Speed for turning
+// #define FORWARD_SPEED 250 // Speed for moving forward
+#define SEARCH_SPEED 30     // Speed for searching
+#define TURN_DELAY 100      // Delay for turning in milliseconds
+#define BACK_SPEED 150      // Speed for moving backward
+int SEARCH_RANGE = 1500;    // Range to search for opponent in mm
+int turnDirection = 0;      // 0: left, 1: right
+int LEFT_MOTOR_SPEED = 255;
+int RIGHT_MOTOR_SPEED = 255;
 
 #define BLE_SEND_DELAY 100
 
@@ -72,14 +74,12 @@ bool isRunning = false;
 
 int angle = 90;
 // function to return a random angle of 8 or 160 for servo angle
-int getRandomServoAngle()
-{
+int getRandomServoAngle() {
   // 8 for left, 160 for right
   return random(0, 2) * 152 + 8; // Returns either 8 or 160
 }
 
-struct ToFResult
-{
+struct ToFResult {
   bool inRange;    // True if any sensor is in range
   bool FL_inRange; // True if front left sensor is in range
   bool FR_inRange; // True if front right sensor is in range
@@ -93,30 +93,39 @@ struct ToFResult
 
 ToFResult tof;
 
-// Function prototypes
-void Motor1(int speed);
-void Motor2(int speed);
-void motorControl(int leftSpeed, int rightSpeed);
-void avoidEdge();
-void searchOpponent();
-void attackTarget(const ToFResult &tof);
-
 // Initialize ToF sensors
-void initSensor(VL53L0X &sensor, uint8_t address, int xshutPin)
-{
-  pinMode(xshutPin, OUTPUT);
-  digitalWrite(xshutPin, LOW);
-  delay(100);
-  digitalWrite(xshutPin, HIGH);
-  delay(100);
-  sensor.init();
+void initSensor(VL53L0X &sensor, uint8_t address, int xshutPin) {
+  // Assumes other XSHUTs are held LOW before calling this function.
+  digitalWrite(xshutPin, HIGH); // bring this sensor out of reset
+  delay(50);                    // allow boot
+  Serial.print("Initializing sensor at xshut pin ");
+  Serial.println(xshutPin);
+
+  // Attempt init with a timeout to avoid blocking forever
+  unsigned long start = millis();
+  bool ok = false;
+  while (millis() - start < 1000) { // 1 second timeout
+    if (sensor.init()) { // many VL53L0X libs return bool; if yours doesn't, this still calls init once
+      ok = true;
+      break;
+    }
+    delay(50);
+  }
+
+  if (!ok) {
+    Serial.print("ERROR: sensor.init() timed out at xshut pin ");
+    Serial.println(xshutPin);
+    return;
+  }
+
+  Serial.print("Initialized Sensor at xshut pin ");
+  Serial.println(xshutPin);
   sensor.setAddress(address);
   sensor.startContinuous();
-  delay(100); // Allow sensor to stabilize
+  delay(20); // allow continuous mode to start
 }
 
-ToFResult checkToFSensors(uint16_t rangeLimit)
-{
+ToFResult checkToFSensors(uint16_t rangeLimit) {
   ToFResult result;
 
   result.FL = FLToF.readRangeContinuousMillimeters();
@@ -134,8 +143,7 @@ ToFResult checkToFSensors(uint16_t rangeLimit)
   return result;
 }
 
-void Motor1(int speed)
-{
+void Motor1(int speed) {
   if (speed > 0)
   {
     digitalWrite(DIR1, HIGH); // Set direction forward
@@ -267,7 +275,7 @@ void avoidEdge() {
     // If back sensor is on white and front sensors are on black, move forward
     if (LIR_val == HIGH && RIR_val == HIGH)
     {
-      motorControl(FORWARD_SPEED, FORWARD_SPEED);
+      motorControl(LEFT_MOTOR_SPEED, RIGHT_MOTOR_SPEED);
       Serial.println("Edge detected on BACK only - moving forward");
     }
     else
@@ -280,8 +288,7 @@ void avoidEdge() {
   }
 }
 
-void searchOpponent()
-{
+void searchOpponent() {
   // Rotate in place to search for opponent
   if (turnDirection == 0)
   {
@@ -297,26 +304,37 @@ void searchOpponent()
 
 void attackTarget(const ToFResult &tof)
 {
+  const int BIAS = 100;
+  int leftSpeed = LEFT_MOTOR_SPEED;
+  int rightSpeed = RIGHT_MOTOR_SPEED;
+
   if (tof.FL_inRange || tof.FR_inRange)
   {
-    // Opponent detected in front, move forward
-    motorControl(FORWARD_SPEED, FORWARD_SPEED);
+    if (turnDirection == 0) {
+      // bias to left: slow left, keep right full
+      leftSpeed = (LEFT_MOTOR_SPEED > BIAS) ? (LEFT_MOTOR_SPEED - BIAS) : 0;
+      rightSpeed = RIGHT_MOTOR_SPEED;
+    } else {
+      // bias to right: slow right, keep left full
+      leftSpeed = LEFT_MOTOR_SPEED;
+      rightSpeed = (RIGHT_MOTOR_SPEED > BIAS) ? (RIGHT_MOTOR_SPEED - BIAS) : 0;
+    }
+    motorControl(leftSpeed, rightSpeed);
   }
   else if (tof.L_inRange && tof.R_inRange)
   {
-    // Opponent detected on both sides means he is opened the flag
-    // so run straight forward to hit the opponent
-    motorControl(FORWARD_SPEED, FORWARD_SPEED);
+    // opponent centered — go straight
+    motorControl(LEFT_MOTOR_SPEED, RIGHT_MOTOR_SPEED);
   }
   else if (tof.L_inRange)
   {
-    // Opponent detected on left, turn left
+    // opponent on left: turn in place left to reacquire
     turnDirection = 0;
     motorControl(-TURN_SPEED, TURN_SPEED);
   }
   else if (tof.R_inRange)
   {
-    // Opponent detected on right, turn right
+    // opponent on right: turn in place right to reacquire
     turnDirection = 1;
     motorControl(TURN_SPEED, -TURN_SPEED);
   }
@@ -336,7 +354,7 @@ void IR_Servo_Task(void *pvParameters)
     }
     if (isRunning) {
       flagServo.write(angle); // Move flag to the current angle
-      if (tof.FL_inRange && tof.FR_inRange)
+      if (tof.FL_inRange || tof.FR_inRange)
       {
         // look for the ir signal to stop it
         if (IrReceiver.decode())
@@ -371,8 +389,7 @@ void IR_Servo_Task(void *pvParameters)
   }
 }
 
-void setup()
-{
+void setup() {
   // Initialize serial communication for debugging
   Serial.begin(115200);
   IrReceiver.begin(IR_REMOTE_PIN); // Initialize IR receiver
@@ -385,6 +402,26 @@ void setup()
 
   Wire.begin(VL53L0X_SDA, VL53L0X_SCL);   // Initialize I2C for VL53L0X sensors
   Wire.setClock(400000);                  // Increase I2C speed to 400kHz for faster sensor reading
+
+  // --- Ensure all VL53L0X XSHUT lines are held LOW first (reset all sensors) ---
+  pinMode(VL53L0X_XSHUT1, OUTPUT);
+  pinMode(VL53L0X_XSHUT2, OUTPUT);
+  pinMode(VL53L0X_XSHUT4, OUTPUT);
+  pinMode(VL53L0X_XSHUT3, OUTPUT);
+
+  digitalWrite(VL53L0X_XSHUT1, LOW);
+  digitalWrite(VL53L0X_XSHUT2, LOW);
+  digitalWrite(VL53L0X_XSHUT4, LOW);
+  digitalWrite(VL53L0X_XSHUT3, LOW);
+  delay(20); // all sensors in reset
+
+  // Initialize each sensor
+  initSensor(LToF, 0x31, VL53L0X_XSHUT1);
+  initSensor(FLToF, 0x30, VL53L0X_XSHUT2);
+  initSensor(RToF, 0x33, VL53L0X_XSHUT3);
+  initSensor(FRToF, 0x34, VL53L0X_XSHUT4);
+  delay(100); // Allow sensors to stabilize
+
   flagServo.setPeriodHertz(50);           // Set servo frequency to 50Hz
   flagServo.attach(SERVO_PIN, 500, 2400); // Attach servo to control flag
   flagServo.write(angle);                 // Initialize flag position which should be standing initially
@@ -412,19 +449,10 @@ void setup()
       &IR_ServoHandler, // Task handle
       0                 // Core ID
   );
-
-  // Initialize ToF sensors
-  initSensor(LToF, 0x31, VL53L0X_XSHUT1);
-  initSensor(FLToF, 0x30, VL53L0X_XSHUT2);
-  initSensor(RToF, 0x33, VL53L0X_XSHUT3);
-  initSensor(FRToF, 0x34, VL53L0X_XSHUT4);
-  delay(100); // Allow sensors to stabilize
 }
 
-void loop()
-{
-  if (!isRunning)
-  {
+void loop() {
+  if (!isRunning) {
     motorControl(0, 0); // Stop the motors
     return;             // Exit the loop if robot is not running
   }
