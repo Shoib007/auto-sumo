@@ -14,8 +14,8 @@ Servo flagServo; // Servo for flag control
 
 // Rhino Motor Driver Pins
 #define DIR1 12
-#define PWM1 14   // 14 on New robot
-#define DIR2 27   // 27 on New robot
+#define PWM1 27   // 14 on New robot
+#define DIR2 14   // 27 on New robot
 #define PWM2 15
 
 // Channel for PWM
@@ -41,7 +41,7 @@ VL53L0X LToF;
 VL53L0X RToF;
 
 bool debug = true;          // Set to true for debugging
-#define TURN_SPEED 100      // Speed for turning
+#define TURN_SPEED 30      // Speed for turning
 // #define FORWARD_SPEED 250 // Speed for moving forward
 #define SEARCH_SPEED 30     // Speed for searching
 #define TURN_DELAY 100      // Delay for turning in milliseconds
@@ -50,6 +50,8 @@ int SEARCH_RANGE = 1500;    // Range to search for opponent in mm
 int turnDirection = 0;      // 0: left, 1: right
 int LEFT_MOTOR_SPEED = 255;
 int RIGHT_MOTOR_SPEED = 255;
+bool isRushing = true;
+unsigned long rushLimit = 500; // Time limit for rushing (ms)
 
 #define BLE_SEND_DELAY 100
 
@@ -356,15 +358,6 @@ void IR_Servo_Task(void *pvParameters)
       flagServo.write(angle); // Move flag to the current angle
       if (tof.FL_inRange || tof.FR_inRange)
       {
-        // look for the ir signal to stop it
-        if (IrReceiver.decode())
-        {
-          if (IrReceiver.decodedIRData.command == 69) {
-            isRunning = !isRunning; // Toggle running state
-          }
-          IrReceiver.resume(); // Prepare to receive the next value
-        }
-
         // If both front sensors detect opponent, lift the flag
         flagServo.write(90); // Lift flag to 90 degrees
       }
@@ -457,12 +450,13 @@ void loop() {
     return;             // Exit the loop if robot is not running
   }
 
+  static unsigned long startRushing = millis();
+
   // PRIORITY 1: Edge avoidance (always check first)
   avoidEdge();
 
   // If we're avoiding edge, don't do anything else
-  if (isAvoidingEdge)
-  {
+  if (isAvoidingEdge) {
     return;
   }
 
@@ -485,7 +479,18 @@ void loop() {
   }
   else
   {
-    searchOpponent();
+    // rush for 500ms using millis() and make rush = false
+    // use rushLimit variable
+    // this should be asyncronous so that it does'nt block other function
+    if (isRushing) {
+      if (millis() - startRushing < rushLimit) {
+        motorControl(LEFT_MOTOR_SPEED, RIGHT_MOTOR_SPEED);
+      } else {
+        isRushing = false; // Stop rushing after the limit
+      }
+    } else {
+      searchOpponent();
+    }
   }
 }
 
