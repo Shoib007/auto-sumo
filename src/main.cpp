@@ -2,15 +2,6 @@
 #include <Wire.h>
 #include <VL53L0X.h>
 #include <ArduinoJson.h>
-// #include <ESP32Servo.h> // Include ESP32Servo for servo control
-// #include <IRremote.h>   // Include IRremote for IR remote control
-
-// // IR Remote Pin
-// #define IR_REMOTE_PIN 4 // Pin for IR remote control
-
-// Servo Pins
-// #define SERVO_PIN 23
-// Servo flagServo; // Servo for flag control
 
 // RF Remote pins
 #define RF_ON_PIN 4        // Pin for RF remote control (same as IR remote pin for simplicity)
@@ -77,15 +68,7 @@ int edgeAvoidanceTime = 400;         // Increased avoidance time (ms)
 bool wasNearEdge = false;            // Track if we were previously near edge
 
 // Variable to keep track if the robot is running or not
-bool isRunning = false; // Start in running state, can be toggled with IR remote
-
-int angle = 90;
-// function to return a random angle of 8 or 160 for servo angle
-int getRandomServoAngle()
-{
-  // 8 for left, 160 for right
-  return random(0, 2) * 152 + 8; // Returns either 8 or 160
-}
+bool isRunning = false; // Start in running state, can be toggled with RF remote
 
 struct ToFResult
 {
@@ -366,62 +349,10 @@ void attackTarget(const ToFResult &tof)
   }
 }
 
-// Global variables for core syncronization
-TaskHandle_t IR_ServoHandler;
-
-void IR_Servo_Task(void *pvParameters)
-{
-  for (;;)
-  {
-    // if (IrReceiver.decode()) {
-    //   if (IrReceiver.decodedIRData.command == 69) {
-    //     isRunning = !isRunning; // Toggle running state
-    //   }
-    //   IrReceiver.resume(); // Prepare to receive the next value
-    // }
-    if (isRunning)
-    {
-      // flagServo.write(angle); // Move flag to the current angle
-      if (tof.FL_inRange || tof.FR_inRange)
-      {
-        // If both front sensors detect opponent, lift the flag
-        // flagServo.write(90); // Lift flag to 90 degrees
-      }
-      // if left ToF detects and flag angle is 8 then lift the flag to 90
-      if (tof.L_inRange && angle == 8)
-      {
-        // flagServo.write(90);
-        delay(2000);
-        angle = getRandomServoAngle(); // Get a new random angle for the next time
-      }
-      // if right ToF detects and flag angle is 160 then lift the flag to 90
-      else if (tof.R_inRange && angle == 160)
-      {
-        // flagServo.write(90);
-        delay(2000);
-        angle = getRandomServoAngle(); // Get a new random angle for the next time
-      }
-    }
-    else
-    {
-      // flagServo.write(90);           // flag will be up
-      angle = getRandomServoAngle(); // Get a new random angle for the next time
-    }
-    vTaskDelay(100 / portTICK_PERIOD_MS);
-  }
-}
-
 void setup()
 {
   // Initialize serial communication for debugging
   Serial.begin(115200);
-  // IrReceiver.begin(IR_REMOTE_PIN); // Initialize IR receiver
-
-  // angle = getRandomServoAngle(); // Get initial random servo angle
-
-  // FIRST: Allocate specific timers for servo (before any other timer usage)
-  // ESP32PWM::allocateTimer(2); // Use timer 2 for servo (avoid 0,1 used by motors)
-  // ESP32PWM::allocateTimer(3); // Use timer 3 as backup
 
   Wire.begin(VL53L0X_SDA, VL53L0X_SCL); // Initialize I2C for VL53L0X sensors
   Wire.setClock(400000);                // Increase I2C speed to 400kHz for faster sensor reading
@@ -445,10 +376,6 @@ void setup()
   initSensor(FRToF, 0x34, VL53L0X_XSHUT4);
   delay(100); // Allow sensors to stabilize
 
-  // flagServo.setPeriodHertz(50);           // Set servo frequency to 50Hz
-  // flagServo.attach(SERVO_PIN, 500, 2400); // Attach servo to control flag
-  // flagServo.write(angle);                 // Initialize flag position which should be standing initially
-
   pinMode(DIR1, OUTPUT);
   pinMode(PWM1, OUTPUT);
   pinMode(DIR2, OUTPUT);
@@ -467,17 +394,6 @@ void setup()
   // Configure PWM for the motor driver
   ledcAttachChannel(PWM1, PWM_FREQUENCY, PWM_RESOLUTION, 0); // Attach PWM1 to channel 0
   ledcAttachChannel(PWM2, PWM_FREQUENCY, PWM_RESOLUTION, 1); // Attach PWM2 to channel 1
-
-  // Create the task for another core
-  xTaskCreatePinnedToCore(
-      IR_Servo_Task, // Task function
-      "IRServoTask",
-      2048,             // Stack size
-      NULL,             // Task input parameter
-      1,                // Task priority
-      &IR_ServoHandler, // Task handle
-      0                 // Core ID
-  );
 }
 
 void loop()
