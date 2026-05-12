@@ -9,10 +9,10 @@
 #define ROBOT_STATUS_LED 5 // LED to indicate robot status (on/off)
 
 // Rhino Motor Driver Pins
-#define DIR1 14
-#define PWM1 15 // 14 on New robot
+#define DIR1 27
+#define PWM1 14 // 14 on New robot
 #define DIR2 12 // 27 on New robot
-#define PWM2 27
+#define PWM2 15
 
 // Channel for PWM
 #define PWM_FREQUENCY 10000 // 10 kHz frequency
@@ -42,7 +42,7 @@ bool debug = true;    // Set to true for debugging
 #define SEARCH_SPEED 30  // Speed for searching
 #define TURN_DELAY 100   // Delay for turning in milliseconds
 #define BACK_SPEED 150   // Speed for moving backward
-int SEARCH_RANGE = 1500; // Range to search for opponent in mm
+int SEARCH_RANGE = 100; // Range to search for opponent in mm
 int turnDirection = 0;   // 0: left, 1: right
 int LEFT_MOTOR_SPEED = 255;
 int RIGHT_MOTOR_SPEED = 255;
