@@ -10,9 +10,10 @@
 
 // Rhino Motor Driver Pins
 #define DIR1 27
-#define PWM1 14 // 14 on New robot
-#define DIR2 12 // 27 on New robot
-#define PWM2 15
+#define PWM1 12
+
+#define DIR2 15
+#define PWM2 14
 
 // Channel for PWM
 #define PWM_FREQUENCY 10000 // 10 kHz frequency
@@ -77,6 +78,7 @@ struct ToFResult
   bool FR_inRange; // True if front right sensor is in range
   bool L_inRange;  // True if left sensor is in range
   bool R_inRange;  // True if right sensor is in range
+
   uint16_t FL;     // Distance from front left sensor
   uint16_t FR;     // Distance from front right sensor
   uint16_t L;      // Distance from left sensor
@@ -124,7 +126,7 @@ void initSensor(VL53L0X &sensor, uint8_t address, int xshutPin)
 ToFResult checkToFSensors(uint16_t rangeLimit)
 {
   ToFResult result;
-
+  
   result.FL = FLToF.readRangeContinuousMillimeters();
   result.FR = FRToF.readRangeContinuousMillimeters();
   result.L = LToF.readRangeContinuousMillimeters();
@@ -180,8 +182,8 @@ void Motor2(int speed)
 
 void motorControl(int leftSpeed, int rightSpeed)
 {
-  Motor1(rightSpeed);
-  Motor2(leftSpeed);
+  Motor1(leftSpeed);
+  Motor2(rightSpeed);
 }
 
 void avoidEdge()
@@ -309,7 +311,14 @@ void attackTarget(const ToFResult &tof)
   int leftSpeed = LEFT_MOTOR_SPEED;
   int rightSpeed = RIGHT_MOTOR_SPEED;
 
-  if (tof.FL_inRange || tof.FR_inRange)
+  if(tof.FL_inRange && tof.FR_inRange)
+  {
+    // opponent centered — go straight
+    motorControl(LEFT_MOTOR_SPEED, RIGHT_MOTOR_SPEED);
+    Serial.println("Attacking target - centered");
+
+  }
+  else if (tof.FL_inRange || tof.FR_inRange)
   {
     if (turnDirection == 0)
     {
@@ -355,7 +364,7 @@ void setup()
   Serial.begin(115200);
 
   Wire.begin(VL53L0X_SDA, VL53L0X_SCL); // Initialize I2C for VL53L0X sensors
-  Wire.setClock(400000);                // Increase I2C speed to 400kHz for faster sensor reading
+  Wire.setClock(100000);                // Reduce to 100kHz for better noise immunity with thin traces
 
   // --- Ensure all VL53L0X XSHUT lines are held LOW first (reset all sensors) ---
   pinMode(VL53L0X_XSHUT1, OUTPUT);
@@ -391,10 +400,16 @@ void setup()
   pinMode(ROBOT_STATUS_LED, OUTPUT);
   digitalWrite(ROBOT_STATUS_LED, LOW); // Turn OFF status LED to indicate robot
 
+  // turn off motors at startup
+  motorControl(0, 0);
+
   // Configure PWM for the motor driver
   ledcAttachChannel(PWM1, PWM_FREQUENCY, PWM_RESOLUTION, 0); // Attach PWM1 to channel 0
   ledcAttachChannel(PWM2, PWM_FREQUENCY, PWM_RESOLUTION, 1); // Attach PWM2 to channel 1
 }
+
+
+// Main loop for robot control
 
 void loop()
 {
@@ -461,5 +476,24 @@ void loop()
     }
   }
 }
+
+
+// Test the motors
+
+// void loop() {
+//   // left speed, right speed
+//   motorControl(-255, -255); // Full speed forward
+// }
+
+
+// Test loop to verify ToF sensor readings
+
+// void loop() {
+//   // test Tof sensors by printing values to serial
+//   tof = checkToFSensors(100); // Check with a range limit of 100mm
+//   Serial.printf("FL: %d mm, \tFR: %d mm, \tL: %d mm, \tR: %d mm", tof.FL, tof.FR, tof.L, tof.R);
+//   delay(200); // Print every 200ms
+// }
+
 
 
