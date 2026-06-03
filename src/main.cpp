@@ -5,7 +5,7 @@
 
 // RF Remote pins
 #define RF_ON_PIN 4        // Pin for RF remote control (same as IR remote pin for simplicity)
-#define RF_OFF_PIN 23      // Pin for RF remote control (not used in this code, but can be added for future functionality)
+#define RF_OFF_PIN 25      // Pin for RF remote control (not used in this code, but can be added for future functionality)
 #define ROBOT_STATUS_LED 5 // LED to indicate robot status (on/off)
 
 // Rhino Motor Driver Pins
@@ -43,7 +43,7 @@ bool debug = true;    // Set to true for debugging
 #define SEARCH_SPEED 30  // Speed for searching
 #define TURN_DELAY 100   // Delay for turning in milliseconds
 #define BACK_SPEED 150   // Speed for moving backward
-int SEARCH_RANGE = 100; // Range to search for opponent in mm
+int SEARCH_RANGE = 1500; // Range to search for opponent in mm
 int turnDirection = 0;   // 0: left, 1: right
 int LEFT_MOTOR_SPEED = 255;
 int RIGHT_MOTOR_SPEED = 255;
@@ -138,7 +138,7 @@ ToFResult checkToFSensors(uint16_t rangeLimit)
   result.R_inRange = result.R <= rangeLimit;
 
   result.inRange = (result.FL_inRange || result.FR_inRange || result.L_inRange || result.R_inRange);
-
+  delay(10); // Small delay to prevent overwhelming the sensors, can be adjusted based on performance needs
   return result;
 }
 
@@ -482,7 +482,7 @@ void loop()
 
 // void loop() {
 //   // left speed, right speed
-//   motorControl(-255, -255); // Full speed forward
+//   motorControl(255, 255); // Full speed forward
 // }
 
 
@@ -492,6 +492,21 @@ void loop()
 //   // test Tof sensors by printing values to serial
 //   tof = checkToFSensors(100); // Check with a range limit of 100mm
 //   Serial.printf("FL: %d mm, \tFR: %d mm, \tL: %d mm, \tR: %d mm", tof.FL, tof.FR, tof.L, tof.R);
+//   Serial.println();
+//   delay(200); // Print every 200ms
+// }
+
+
+// Test loop to verify IR sensor readings
+
+// void loop() {
+//   // test IR sensors by printing values to serial
+//   LIR_val = digitalRead(IR_LEFT);
+//   RIR_val = digitalRead(IR_RIGHT);
+//   BIR_val = digitalRead(IR_BACK);
+
+//   Serial.printf("LIR: %d, \tRIR: %d, \tBIR: %d", LIR_val, RIR_val, BIR_val);
+//   Serial.println();
 //   delay(200); // Print every 200ms
 // }
 
