@@ -9,11 +9,11 @@
 #define ROBOT_STATUS_LED 5 // LED to indicate robot status (on/off)
 
 // Rhino Motor Driver Pins
-#define DIR1 27
-#define PWM1 12
+#define DIR1 12
+#define PWM1 27
 
-#define DIR2 15
-#define PWM2 14
+#define DIR2 14
+#define PWM2 15
 
 // Channel for PWM
 #define PWM_FREQUENCY 10000 // 10 kHz frequency
@@ -40,13 +40,13 @@ VL53L0X RToF;
 bool debug = true;    // Set to true for debugging
 #define TURN_SPEED 30 // Speed for turning
 // #define FORWARD_SPEED 250 // Speed for moving forward
-#define SEARCH_SPEED 30  // Speed for searching
-#define TURN_DELAY 100   // Delay for turning in milliseconds
-#define BACK_SPEED 150   // Speed for moving backward
-int SEARCH_RANGE = 1500; // Range to search for opponent in mm
-int turnDirection = 0;   // 0: left, 1: right
-int LEFT_MOTOR_SPEED = 255;
-int RIGHT_MOTOR_SPEED = 255;
+#define SEARCH_SPEED 30            // Speed for searching
+#define TURN_DELAY 100             // Delay for turning in milliseconds
+#define BACK_SPEED 150             // Speed for moving backward
+const int SEARCH_RANGE = 1500;     // Range to search for opponent in mm
+bool turnDirection = 0;            // 0: left, 1: right
+const int LEFT_MOTOR_SPEED = 255;  // Speed for left motor
+const int RIGHT_MOTOR_SPEED = 255; // Speed for right motor
 bool isRushing = true;
 unsigned long rushLimit = 500; // Time limit for rushing (ms)
 
@@ -79,10 +79,10 @@ struct ToFResult
   bool L_inRange;  // True if left sensor is in range
   bool R_inRange;  // True if right sensor is in range
 
-  uint16_t FL;     // Distance from front left sensor
-  uint16_t FR;     // Distance from front right sensor
-  uint16_t L;      // Distance from left sensor
-  uint16_t R;      // Distance from right sensor
+  uint16_t FL; // Distance from front left sensor
+  uint16_t FR; // Distance from front right sensor
+  uint16_t L;  // Distance from left sensor
+  uint16_t R;  // Distance from right sensor
 };
 
 ToFResult tof;
@@ -126,7 +126,7 @@ void initSensor(VL53L0X &sensor, uint8_t address, int xshutPin)
 ToFResult checkToFSensors(uint16_t rangeLimit)
 {
   ToFResult result;
-  
+
   result.FL = FLToF.readRangeContinuousMillimeters();
   result.FR = FRToF.readRangeContinuousMillimeters();
   result.L = LToF.readRangeContinuousMillimeters();
@@ -138,7 +138,7 @@ ToFResult checkToFSensors(uint16_t rangeLimit)
   result.R_inRange = result.R <= rangeLimit;
 
   result.inRange = (result.FL_inRange || result.FR_inRange || result.L_inRange || result.R_inRange);
-  delay(10); // Small delay to prevent overwhelming the sensors, can be adjusted based on performance needs
+  delay(50); // Short delay to allow for sensor readings and avoid I2C bus congestion
   return result;
 }
 
@@ -146,18 +146,18 @@ void Motor1(int speed)
 {
   if (speed > 0)
   {
-    digitalWrite(DIR1, LOW); // Set direction forward
-    ledcWrite(PWM1, speed);   // Set speed
+    digitalWrite(DIR1, 1);  // Set direction forward
+    ledcWrite(PWM1, speed); // Set speed
   }
   else if (speed < 0)
   {
-    digitalWrite(DIR1, HIGH); // Set direction backward
-    ledcWrite(PWM1, -speed); // Set speed (convert to positive value)
+    digitalWrite(DIR1, 0);   // Set direction backward
+    ledcWrite(PWM1, abs(speed)); // Set speed (convert to positive value)
   }
   else
   {
-    digitalWrite(DIR1, LOW); // Stop the motor
-    ledcWrite(PWM1, 0);      // Set speed to 0
+    digitalWrite(DIR1, 0); // Stop the motor
+    ledcWrite(PWM1, 0);    // Set speed to 0
   }
 }
 
@@ -165,18 +165,18 @@ void Motor2(int speed)
 {
   if (speed > 0)
   {
-    digitalWrite(DIR2, HIGH); // Set direction forward
-    ledcWrite(PWM2, speed);  // Set speed
+    digitalWrite(DIR2, 0);  // Set direction forward
+    ledcWrite(PWM2, speed); // Set speed
   }
   else if (speed < 0)
   {
-    digitalWrite(DIR2, LOW); // Set direction backward
-    ledcWrite(PWM2, -speed);  // Set speed (convert to positive value)
+    digitalWrite(DIR2, 1);   // Set direction backward
+    ledcWrite(PWM2, abs(speed)); // Set speed (convert to positive value)
   }
   else
   {
-    digitalWrite(DIR2, LOW); // Stop the motor
-    ledcWrite(PWM2, 0);      // Set speed to 0
+    digitalWrite(DIR2, 0); // Stop the motor
+    ledcWrite(PWM2, 0);    // Set speed to 0
   }
 }
 
@@ -308,53 +308,60 @@ void searchOpponent()
 void attackTarget(const ToFResult &tof)
 {
   const int BIAS = 100;
-  int leftSpeed = LEFT_MOTOR_SPEED;
-  int rightSpeed = RIGHT_MOTOR_SPEED;
+  // int leftSpeed = LEFT_MOTOR_SPEED;
+  // int rightSpeed = RIGHT_MOTOR_SPEED;
 
-  if(tof.FL_inRange && tof.FR_inRange)
+  // if (tof.FL_inRange && tof.FR_inRange)
+  // {
+  //   // opponent centered — go straight
+  //   motorControl(LEFT_MOTOR_SPEED, RIGHT_MOTOR_SPEED);
+  //   Serial.println("Attacking target - centered");
+  // }
+  if (tof.FL_inRange || tof.FR_inRange)
   {
-    // opponent centered — go straight
+    // if (turnDirection == 0)
+    // {
+    //   // bias to left: slow left, keep right full
+    //   leftSpeed = (LEFT_MOTOR_SPEED > BIAS) ? (LEFT_MOTOR_SPEED - BIAS) : 0;
+    //   rightSpeed = RIGHT_MOTOR_SPEED;
+    //   Serial.println("Attacking target - biasing left");
+    // }
+    // else
+    // {
+    //   // bias to right: slow right, keep left full
+    //   leftSpeed = LEFT_MOTOR_SPEED;
+    //   rightSpeed = (RIGHT_MOTOR_SPEED > BIAS) ? (RIGHT_MOTOR_SPEED - BIAS) : 0;
+    //   Serial.println("Attacking target - biasing right");
+    // }
     motorControl(LEFT_MOTOR_SPEED, RIGHT_MOTOR_SPEED);
-    Serial.println("Attacking target - centered");
-
-  }
-  else if (tof.FL_inRange || tof.FR_inRange)
-  {
-    if (turnDirection == 0)
-    {
-      // bias to left: slow left, keep right full
-      leftSpeed = (LEFT_MOTOR_SPEED > BIAS) ? (LEFT_MOTOR_SPEED - BIAS) : 0;
-      rightSpeed = RIGHT_MOTOR_SPEED;
-      Serial.println("Attacking target - biasing left");
-    }
-    else
-    {
-      // bias to right: slow right, keep left full
-      leftSpeed = LEFT_MOTOR_SPEED;
-      rightSpeed = (RIGHT_MOTOR_SPEED > BIAS) ? (RIGHT_MOTOR_SPEED - BIAS) : 0;
-      Serial.println("Attacking target - biasing right");
-    }
-    motorControl(leftSpeed, rightSpeed);
-  }
-  else if (tof.L_inRange && tof.R_inRange)
-  {
-    // opponent centered — go straight
-    motorControl(LEFT_MOTOR_SPEED, RIGHT_MOTOR_SPEED);
-    Serial.println("Attacking target - centered");
   }
   else if (tof.L_inRange)
   {
-    // opponent on left: turn in place left to reacquire
     turnDirection = 0;
-    motorControl(-TURN_SPEED, TURN_SPEED);
-    Serial.println("Attacking target - turning left");
+    if(tof.L < 80) {
+      // opponent on left: turn in place left to reacquire
+      motorControl(-LEFT_MOTOR_SPEED, RIGHT_MOTOR_SPEED);
+      Serial.println("Attacking target - turning left");
+    } else {
+      // opponent on left: turn in place left to reacquire
+      turnDirection = 0;
+      motorControl(-TURN_SPEED, TURN_SPEED);
+      Serial.println("Attacking target - turning left");
+    }
   }
   else if (tof.R_inRange)
   {
     // opponent on right: turn in place right to reacquire
     turnDirection = 1;
-    motorControl(TURN_SPEED, -TURN_SPEED);
-    Serial.println("Attacking target - turning right");
+    if(tof.R < 80) {
+      motorControl(LEFT_MOTOR_SPEED, -RIGHT_MOTOR_SPEED);
+      Serial.println("Attacking target - turning right");
+    } else {
+      // opponent on right: turn in place right to reacquire
+      turnDirection = 1;
+      motorControl(TURN_SPEED, -TURN_SPEED);
+      Serial.println("Attacking target - turning right");
+    }
   }
 }
 
@@ -363,8 +370,8 @@ void setup()
   // Initialize serial communication for debugging
   Serial.begin(115200);
 
-  Wire.begin(VL53L0X_SDA, VL53L0X_SCL); // Initialize I2C for VL53L0X sensors
-  Wire.setClock(100000);                // Reduce to 100kHz for better noise immunity with thin traces
+  Wire.begin(VL53L0X_SDA, VL53L0X_SCL, 100000); // Initialize I2C for VL53L0X sensors
+  // Wire.setClock(100000);                // Reduce to 100kHz for better noise immunity with thin traces
 
   // --- Ensure all VL53L0X XSHUT lines are held LOW first (reset all sensors) ---
   pinMode(VL53L0X_XSHUT1, OUTPUT);
@@ -408,7 +415,6 @@ void setup()
   ledcAttachChannel(PWM2, PWM_FREQUENCY, PWM_RESOLUTION, 1); // Attach PWM2 to channel 1
 }
 
-
 // Main loop for robot control
 
 void loop()
@@ -427,6 +433,25 @@ void loop()
   }
 
   static unsigned long startRushing = millis();
+
+  // rush for 500ms using millis() and make rush = false
+  // use rushLimit variable
+  // this should be asyncronous so that it does'nt block other function
+
+  if (isRushing)
+  {
+    // if (millis() - startRushing < rushLimit)
+    // {
+    //   motorControl(LEFT_MOTOR_SPEED - 100, RIGHT_MOTOR_SPEED - 100);
+    // }
+    // else
+    // {
+    //   isRushing = false; // Stop rushing after the limit
+    // }
+    motorControl(LEFT_MOTOR_SPEED - 100, RIGHT_MOTOR_SPEED - 100);
+    delay(500);        // Rush for 500ms
+    isRushing = false; // Stop rushing after the first loop iteration
+  }
 
   // PRIORITY 1: Edge avoidance (always check first)
   avoidEdge();
@@ -456,25 +481,10 @@ void loop()
   }
   else
   {
-    // rush for 500ms using millis() and make rush = false
-    // use rushLimit variable
-    // this should be asyncronous so that it does'nt block other function
-    if (isRushing)
-    {
-      if (millis() - startRushing < rushLimit)
-      {
-        motorControl(LEFT_MOTOR_SPEED, RIGHT_MOTOR_SPEED);
-      }
-      else
-      {
-        isRushing = false; // Stop rushing after the limit
-      }
-    }
-    else
-    {
-      searchOpponent();
-    }
+    searchOpponent();
   }
+
+  delay(50); // Short delay to allow for sensor readings and avoid I2C bus congestion
 }
 
 
@@ -482,9 +492,10 @@ void loop()
 
 // void loop() {
 //   // left speed, right speed
-//   motorControl(255, 255); // Full speed forward
-// }
+//   // Move Forward
+//   motorControl(0, -100); // Full speed forward
 
+// }
 
 // Test loop to verify ToF sensor readings
 
@@ -495,7 +506,6 @@ void loop()
 //   Serial.println();
 //   delay(200); // Print every 200ms
 // }
-
 
 // Test loop to verify IR sensor readings
 
@@ -509,6 +519,3 @@ void loop()
 //   Serial.println();
 //   delay(200); // Print every 200ms
 // }
-
-
-
