@@ -27,6 +27,7 @@
 // VL53L0X Pins
 #define VL53L0X_SDA 21
 #define VL53L0X_SCL 22
+
 #define VL53L0X_XSHUT1 19 // For Left ToF sensor
 #define VL53L0X_XSHUT2 13 // For Front Left ToF sensor
 #define VL53L0X_XSHUT4 26 // For Front Right ToF sensor
@@ -50,7 +51,6 @@ const int RIGHT_MOTOR_SPEED = 255; // Speed for right motor
 bool isRushing = true;
 unsigned long rushLimit = 500; // Time limit for rushing (ms)
 
-#define BLE_SEND_DELAY 100
 
 // Non-blocking timing variables
 unsigned long lastEdgeAvoidTime = 0;
@@ -146,12 +146,12 @@ void Motor1(int speed)
 {
   if (speed > 0)
   {
-    digitalWrite(DIR1, 1);  // Set direction forward
+    digitalWrite(DIR1, 0);  // Set direction forward
     ledcWrite(PWM1, speed); // Set speed
   }
   else if (speed < 0)
   {
-    digitalWrite(DIR1, 0);   // Set direction backward
+    digitalWrite(DIR1, 1);   // Set direction backward
     ledcWrite(PWM1, abs(speed)); // Set speed (convert to positive value)
   }
   else
@@ -165,12 +165,12 @@ void Motor2(int speed)
 {
   if (speed > 0)
   {
-    digitalWrite(DIR2, 0);  // Set direction forward
+    digitalWrite(DIR2, 1);  // Set direction forward
     ledcWrite(PWM2, speed); // Set speed
   }
   else if (speed < 0)
   {
-    digitalWrite(DIR2, 1);   // Set direction backward
+    digitalWrite(DIR2, 0);   // Set direction backward
     ledcWrite(PWM2, abs(speed)); // Set speed (convert to positive value)
   }
   else
@@ -308,31 +308,9 @@ void searchOpponent()
 void attackTarget(const ToFResult &tof)
 {
   const int BIAS = 100;
-  // int leftSpeed = LEFT_MOTOR_SPEED;
-  // int rightSpeed = RIGHT_MOTOR_SPEED;
-
-  // if (tof.FL_inRange && tof.FR_inRange)
-  // {
-  //   // opponent centered — go straight
-  //   motorControl(LEFT_MOTOR_SPEED, RIGHT_MOTOR_SPEED);
-  //   Serial.println("Attacking target - centered");
-  // }
   if (tof.FL_inRange || tof.FR_inRange)
   {
-    // if (turnDirection == 0)
-    // {
-    //   // bias to left: slow left, keep right full
-    //   leftSpeed = (LEFT_MOTOR_SPEED > BIAS) ? (LEFT_MOTOR_SPEED - BIAS) : 0;
-    //   rightSpeed = RIGHT_MOTOR_SPEED;
-    //   Serial.println("Attacking target - biasing left");
-    // }
-    // else
-    // {
-    //   // bias to right: slow right, keep left full
-    //   leftSpeed = LEFT_MOTOR_SPEED;
-    //   rightSpeed = (RIGHT_MOTOR_SPEED > BIAS) ? (RIGHT_MOTOR_SPEED - BIAS) : 0;
-    //   Serial.println("Attacking target - biasing right");
-    // }
+    
     motorControl(LEFT_MOTOR_SPEED, RIGHT_MOTOR_SPEED);
   }
   else if (tof.L_inRange)
@@ -417,85 +395,76 @@ void setup()
 
 // Main loop for robot control
 
-void loop()
-{
+// void loop()
+// {
 
-  if (digitalRead(RF_ON_PIN) == HIGH)
-    isRunning = true; // Start the robot if RF ON signal is received
-  if (digitalRead(RF_OFF_PIN) == HIGH)
-    isRunning = false;                                    // Stop the robot if RF OFF signal is received
-  digitalWrite(ROBOT_STATUS_LED, isRunning ? HIGH : LOW); // Update status LED based on running state
+//   if (digitalRead(RF_ON_PIN) == HIGH)
+//     isRunning = true; // Start the robot if RF ON signal is received
+//   if (digitalRead(RF_OFF_PIN) == HIGH)
+//     isRunning = false;                                    // Stop the robot if RF OFF signal is received
+//   digitalWrite(ROBOT_STATUS_LED, isRunning ? HIGH : LOW); // Update status LED based on running state
 
-  if (!isRunning)
-  {
-    motorControl(0, 0); // Stop the motors
-    return;             // Exit the loop if robot is not running
-  }
+//   if (!isRunning)
+//   {
+//     motorControl(0, 0); // Stop the motors
+//     return;             // Exit the loop if robot is not running
+//   }
 
-  static unsigned long startRushing = millis();
+//   static unsigned long startRushing = millis();
 
-  // rush for 500ms using millis() and make rush = false
-  // use rushLimit variable
-  // this should be asyncronous so that it does'nt block other function
+//   // rush for 500ms using millis() and make rush = false
+//   // use rushLimit variable
+//   // this should be asyncronous so that it does'nt block other function
 
-  if (isRushing)
-  {
-    // if (millis() - startRushing < rushLimit)
-    // {
-    //   motorControl(LEFT_MOTOR_SPEED - 100, RIGHT_MOTOR_SPEED - 100);
-    // }
-    // else
-    // {
-    //   isRushing = false; // Stop rushing after the limit
-    // }
-    motorControl(LEFT_MOTOR_SPEED - 100, RIGHT_MOTOR_SPEED - 100);
-    delay(500);        // Rush for 500ms
-    isRushing = false; // Stop rushing after the first loop iteration
-  }
+//   if (isRushing)
+//   {
+//     motorControl(LEFT_MOTOR_SPEED - 100, RIGHT_MOTOR_SPEED - 100);
+//     delay(rushLimit);        // Rush for 500ms
+//     isRushing = false; // Stop rushing after the first loop iteration
+//   }
 
-  // PRIORITY 1: Edge avoidance (always check first)
-  avoidEdge();
+//   // PRIORITY 1: Edge avoidance (always check first)
+//   avoidEdge();
 
-  // If we're avoiding edge, don't do anything else
-  if (isAvoidingEdge)
-  {
-    return;
-  }
+//   // If we're avoiding edge, don't do anything else
+//   if (isAvoidingEdge)
+//   {
+//     return;
+//   }
 
-  // PRIORITY 2: Attack or search (only if not avoiding edge)
-  tof = checkToFSensors(SEARCH_RANGE);
+//   // PRIORITY 2: Attack or search (only if not avoiding edge)
+//   tof = checkToFSensors(SEARCH_RANGE);
 
-  if (tof.inRange)
-  {
-    // Check edge sensors one more time before aggressive attack moves
-    // This double-check helps prevent missing the edge when chasing opponents
-    LIR_val = digitalRead(IR_LEFT);
-    RIR_val = digitalRead(IR_RIGHT);
-    if (LIR_val == LOW || RIR_val == LOW)
-    {
-      avoidEdge(); // Re-run edge avoidance if we detect an edge
-      return;
-    }
+//   if (tof.inRange)
+//   {
+//     // Check edge sensors one more time before aggressive attack moves
+//     // This double-check helps prevent missing the edge when chasing opponents
+//     LIR_val = digitalRead(IR_LEFT);
+//     RIR_val = digitalRead(IR_RIGHT);
+//     if (LIR_val == LOW || RIR_val == LOW)
+//     {
+//       avoidEdge(); // Re-run edge avoidance if we detect an edge
+//       return;
+//     }
 
-    attackTarget(tof); // Only attack if edge is clear
-  }
-  else
-  {
-    searchOpponent();
-  }
+//     attackTarget(tof); // Only attack if edge is clear
+//   }
+//   else
+//   {
+//     searchOpponent();
+//   }
 
-  delay(50); // Short delay to allow for sensor readings and avoid I2C bus congestion
-}
+//   delay(50); // Short delay to allow for sensor readings and avoid I2C bus congestion
+// }
 
 
 // Test the motors
 
-// void loop() {
-//   // left speed, right speed
-//   // Move Forward
-//   motorControl(0, -100); // Full speed forward
-
-// }
+void loop() {
+  // left speed, right speed
+  // Move Forward
+  motorControl(100, 100); // Full speed forward 
+}
 
 // Test loop to verify ToF sensor readings
 
