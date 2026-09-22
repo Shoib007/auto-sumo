@@ -395,76 +395,76 @@ void setup()
 
 // Main loop for robot control
 
-// void loop()
-// {
+void loop()
+{
 
-//   if (digitalRead(RF_ON_PIN) == HIGH)
-//     isRunning = true; // Start the robot if RF ON signal is received
-//   if (digitalRead(RF_OFF_PIN) == HIGH)
-//     isRunning = false;                                    // Stop the robot if RF OFF signal is received
-//   digitalWrite(ROBOT_STATUS_LED, isRunning ? HIGH : LOW); // Update status LED based on running state
+  if (digitalRead(RF_ON_PIN) == HIGH)
+    isRunning = true; // Start the robot if RF ON signal is received
+  if (digitalRead(RF_OFF_PIN) == HIGH)
+    isRunning = false;                                    // Stop the robot if RF OFF signal is received
+  digitalWrite(ROBOT_STATUS_LED, isRunning ? HIGH : LOW); // Update status LED based on running state
 
-//   if (!isRunning)
-//   {
-//     motorControl(0, 0); // Stop the motors
-//     return;             // Exit the loop if robot is not running
-//   }
+  if (!isRunning)
+  {
+    motorControl(0, 0); // Stop the motors
+    return;             // Exit the loop if robot is not running
+  }
 
-//   static unsigned long startRushing = millis();
+  static unsigned long startRushing = millis();
 
-//   // rush for 500ms using millis() and make rush = false
-//   // use rushLimit variable
-//   // this should be asyncronous so that it does'nt block other function
+  // rush for 500ms using millis() and make rush = false
+  // use rushLimit variable
+  // this should be asyncronous so that it does'nt block other function
 
-//   if (isRushing)
-//   {
-//     motorControl(LEFT_MOTOR_SPEED - 100, RIGHT_MOTOR_SPEED - 100);
-//     delay(rushLimit);        // Rush for 500ms
-//     isRushing = false; // Stop rushing after the first loop iteration
-//   }
+  if (isRushing)
+  {
+    motorControl(LEFT_MOTOR_SPEED - 100, RIGHT_MOTOR_SPEED - 100);
+    delay(rushLimit);        // Rush for 500ms
+    isRushing = false; // Stop rushing after the first loop iteration
+  }
 
-//   // PRIORITY 1: Edge avoidance (always check first)
-//   avoidEdge();
+  // PRIORITY 1: Edge avoidance (always check first)
+  avoidEdge();
 
-//   // If we're avoiding edge, don't do anything else
-//   if (isAvoidingEdge)
-//   {
-//     return;
-//   }
+  // If we're avoiding edge, don't do anything else
+  if (isAvoidingEdge)
+  {
+    return;
+  }
 
-//   // PRIORITY 2: Attack or search (only if not avoiding edge)
-//   tof = checkToFSensors(SEARCH_RANGE);
+  // PRIORITY 2: Attack or search (only if not avoiding edge)
+  tof = checkToFSensors(SEARCH_RANGE);
 
-//   if (tof.inRange)
-//   {
-//     // Check edge sensors one more time before aggressive attack moves
-//     // This double-check helps prevent missing the edge when chasing opponents
-//     LIR_val = digitalRead(IR_LEFT);
-//     RIR_val = digitalRead(IR_RIGHT);
-//     if (LIR_val == LOW || RIR_val == LOW)
-//     {
-//       avoidEdge(); // Re-run edge avoidance if we detect an edge
-//       return;
-//     }
+  if (tof.inRange)
+  {
+    // Check edge sensors one more time before aggressive attack moves
+    // This double-check helps prevent missing the edge when chasing opponents
+    LIR_val = digitalRead(IR_LEFT);
+    RIR_val = digitalRead(IR_RIGHT);
+    if (LIR_val == LOW || RIR_val == LOW)
+    {
+      avoidEdge(); // Re-run edge avoidance if we detect an edge
+      return;
+    }
 
-//     attackTarget(tof); // Only attack if edge is clear
-//   }
-//   else
-//   {
-//     searchOpponent();
-//   }
+    attackTarget(tof); // Only attack if edge is clear
+  }
+  else
+  {
+    searchOpponent();
+  }
 
-//   delay(50); // Short delay to allow for sensor readings and avoid I2C bus congestion
-// }
+  delay(50); // Short delay to allow for sensor readings and avoid I2C bus congestion
+}
 
 
 // Test the motors
 
-void loop() {
-  // left speed, right speed
-  // Move Forward
-  motorControl(100, 100); // Full speed forward 
-}
+// void loop() {
+//   // left speed, right speed
+//   // Move Forward
+//   motorControl(100, 100); // Full speed forward 
+// }
 
 // Test loop to verify ToF sensor readings
 
