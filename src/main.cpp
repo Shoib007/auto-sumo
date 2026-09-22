@@ -44,7 +44,7 @@ bool debug = true;    // Set to true for debugging
 #define SEARCH_SPEED 30            // Speed for searching
 #define TURN_DELAY 100             // Delay for turning in milliseconds
 #define BACK_SPEED 150             // Speed for moving backward
-const int SEARCH_RANGE = 1500;     // Range to search for opponent in mm
+const int SEARCH_RANGE = 100;     // Range to search for opponent in mm
 bool turnDirection = 0;            // 0: left, 1: right
 const int LEFT_MOTOR_SPEED = 255;  // Speed for left motor
 const int RIGHT_MOTOR_SPEED = 255; // Speed for right motor
@@ -318,12 +318,12 @@ void attackTarget(const ToFResult &tof)
     turnDirection = 0;
     if(tof.L < 80) {
       // opponent on left: turn in place left to reacquire
-      motorControl(-LEFT_MOTOR_SPEED, RIGHT_MOTOR_SPEED);
+      motorControl(LEFT_MOTOR_SPEED, -RIGHT_MOTOR_SPEED);
       Serial.println("Attacking target - turning left");
     } else {
       // opponent on left: turn in place left to reacquire
       turnDirection = 0;
-      motorControl(-TURN_SPEED, TURN_SPEED);
+      motorControl(TURN_SPEED, -TURN_SPEED);
       Serial.println("Attacking target - turning left");
     }
   }
@@ -332,12 +332,12 @@ void attackTarget(const ToFResult &tof)
     // opponent on right: turn in place right to reacquire
     turnDirection = 1;
     if(tof.R < 80) {
-      motorControl(LEFT_MOTOR_SPEED, -RIGHT_MOTOR_SPEED);
+      motorControl(-LEFT_MOTOR_SPEED, RIGHT_MOTOR_SPEED);
       Serial.println("Attacking target - turning right");
     } else {
       // opponent on right: turn in place right to reacquire
       turnDirection = 1;
-      motorControl(TURN_SPEED, -TURN_SPEED);
+      motorControl(-TURN_SPEED, TURN_SPEED);
       Serial.println("Attacking target - turning right");
     }
   }
@@ -460,11 +460,7 @@ void loop()
 
 // Test the motors
 
-// void loop() {
-//   // left speed, right speed
-//   // Move Forward
-//   motorControl(100, 100); // Full speed forward 
-// }
+
 
 // Test loop to verify ToF sensor readings
 
