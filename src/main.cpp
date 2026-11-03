@@ -28,15 +28,13 @@
 #define VL53L0X_SDA 21
 #define VL53L0X_SCL 22
 
-#define VL53L0X_XSHUT1 19 // For Left ToF sensor
-#define VL53L0X_XSHUT2 13 // For Front Left ToF sensor
-#define VL53L0X_XSHUT4 26 // For Front Right ToF sensor
-#define VL53L0X_XSHUT3 18 // For Right ToF sensor
+#define VL53L0X_RIGHT 19 // For right ToF sensor
+#define VL53L0X_LEFT 13 // For Left ToF sensor
+#define VL53L0X_CENTER 26 // For Center ToF sensor
 
-VL53L0X FLToF;
-VL53L0X FRToF;
 VL53L0X LToF;
 VL53L0X RToF;
+VL53L0X CToF;
 
 bool debug = true;    // Set to true for debugging
 #define TURN_SPEED 30 // Speed for turning
@@ -44,7 +42,7 @@ bool debug = true;    // Set to true for debugging
 #define SEARCH_SPEED 30            // Speed for searching
 #define TURN_DELAY 100             // Delay for turning in milliseconds
 #define BACK_SPEED 150             // Speed for moving backward
-const int SEARCH_RANGE = 100;     // Range to search for opponent in mm
+const int SEARCH_RANGE = 500;     // Range to search for opponent in mm
 bool turnDirection = 0;            // 0: left, 1: right
 const int LEFT_MOTOR_SPEED = 255;  // Speed for left motor
 const int RIGHT_MOTOR_SPEED = 255; // Speed for right motor
@@ -74,13 +72,11 @@ bool isRunning = false; // Start in running state, can be toggled with RF remote
 struct ToFResult
 {
   bool inRange;    // True if any sensor is in range
-  bool FL_inRange; // True if front left sensor is in range
-  bool FR_inRange; // True if front right sensor is in range
+  bool C_inRange; // True if front left sensor is in range
   bool L_inRange;  // True if left sensor is in range
   bool R_inRange;  // True if right sensor is in range
 
-  uint16_t FL; // Distance from front left sensor
-  uint16_t FR; // Distance from front right sensor
+  uint16_t C; // Distance from center
   uint16_t L;  // Distance from left sensor
   uint16_t R;  // Distance from right sensor
 };
@@ -88,8 +84,7 @@ struct ToFResult
 ToFResult tof;
 
 // Initialize ToF sensors
-void initSensor(VL53L0X &sensor, uint8_t address, int xshutPin)
-{
+void initSensor(VL53L0X &sensor, uint8_t address, int xshutPin) {
   // Assumes other XSHUTs are held LOW before calling this function.
   digitalWrite(xshutPin, HIGH); // bring this sensor out of reset
   delay(50);                    // allow boot
@@ -99,10 +94,10 @@ void initSensor(VL53L0X &sensor, uint8_t address, int xshutPin)
   // Attempt init with a timeout to avoid blocking forever
   unsigned long start = millis();
   bool ok = false;
-  while (millis() - start < 1000)
-  { // 1 second timeout
-    if (sensor.init())
-    { // many VL53L0X libs return bool; if yours doesn't, this still calls init once
+  while (millis() - start < 1000) { 
+    // 1 second timeout
+    if (sensor.init()) { 
+      // many VL53L0X libs return bool; if yours doesn't, this still calls init once
       ok = true;
       break;
     }
@@ -127,17 +122,15 @@ ToFResult checkToFSensors(uint16_t rangeLimit)
 {
   ToFResult result;
 
-  result.FL = FLToF.readRangeContinuousMillimeters();
-  result.FR = FRToF.readRangeContinuousMillimeters();
+  result.C = CToF.readRangeContinuousMillimeters();
   result.L = LToF.readRangeContinuousMillimeters();
   result.R = RToF.readRangeContinuousMillimeters();
 
-  result.FL_inRange = result.FL <= rangeLimit;
-  result.FR_inRange = result.FR <= rangeLimit;
+  result.C_inRange = result.C <= rangeLimit;
   result.L_inRange = result.L <= rangeLimit;
   result.R_inRange = result.R <= rangeLimit;
 
-  result.inRange = (result.FL_inRange || result.FR_inRange || result.L_inRange || result.R_inRange);
+  result.inRange = (result.C_inRange || result.L_inRange || result.R_inRange);
   delay(50); // Short delay to allow for sensor readings and avoid I2C bus congestion
   return result;
 }
@@ -291,28 +284,35 @@ void avoidEdge()
 
 void searchOpponent()
 {
-  Serial.println("Searching for opponent...");
   // Rotate in place to search for opponent
   if (turnDirection == 0)
   {
     // Turn left
     motorControl(-TURN_SPEED, TURN_SPEED);
+    Serial.println("Searching - turning left");
   }
   else
   {
     // Turn right
     motorControl(TURN_SPEED, -TURN_SPEED);
+    Serial.println("Searching - turning right");
   }
 }
 
 void attackTarget(const ToFResult &tof)
 {
   const int BIAS = 100;
-  if (tof.FL_inRange || tof.FR_inRange)
+  if( tof.C_inRange && tof.L_inRange && tof.R_inRange) {
+    // All three sensors detect opponent: move forward with full speed
+    motorControl(LEFT_MOTOR_SPEED, RIGHT_MOTOR_SPEED);
+  }
+  else if (tof.C_inRange)
   {
     
     motorControl(LEFT_MOTOR_SPEED, RIGHT_MOTOR_SPEED);
   }
+  // turnDirection = 0 // left turn
+  // turnDirection = 1 // right turn
   else if (tof.L_inRange)
   {
     turnDirection = 0;
@@ -352,22 +352,19 @@ void setup()
   // Wire.setClock(100000);                // Reduce to 100kHz for better noise immunity with thin traces
 
   // --- Ensure all VL53L0X XSHUT lines are held LOW first (reset all sensors) ---
-  pinMode(VL53L0X_XSHUT1, OUTPUT);
-  pinMode(VL53L0X_XSHUT2, OUTPUT);
-  pinMode(VL53L0X_XSHUT4, OUTPUT);
-  pinMode(VL53L0X_XSHUT3, OUTPUT);
+  pinMode(VL53L0X_RIGHT, OUTPUT);
+  pinMode(VL53L0X_LEFT, OUTPUT);
+  pinMode(VL53L0X_CENTER, OUTPUT);
 
-  digitalWrite(VL53L0X_XSHUT1, LOW);
-  digitalWrite(VL53L0X_XSHUT2, LOW);
-  digitalWrite(VL53L0X_XSHUT4, LOW);
-  digitalWrite(VL53L0X_XSHUT3, LOW);
+  digitalWrite(VL53L0X_RIGHT, LOW);
+  digitalWrite(VL53L0X_LEFT, LOW);
+  digitalWrite(VL53L0X_CENTER, LOW);
   delay(20); // all sensors in reset
 
   // Initialize each sensor
-  initSensor(LToF, 0x31, VL53L0X_XSHUT1);
-  initSensor(FLToF, 0x30, VL53L0X_XSHUT2);
-  initSensor(RToF, 0x33, VL53L0X_XSHUT3);
-  initSensor(FRToF, 0x34, VL53L0X_XSHUT4);
+  initSensor(LToF, 0x31, VL53L0X_LEFT);
+  initSensor(RToF, 0x30, VL53L0X_RIGHT);
+  initSensor(CToF, 0x33, VL53L0X_CENTER);
   delay(100); // Allow sensors to stabilize
 
   pinMode(DIR1, OUTPUT);
@@ -460,7 +457,7 @@ void loop()
 
 // Test the motors
 // void loop() {
-//   motorControl(0, 100);
+//   motorControl(0, 0);
 // }
 
 
@@ -470,7 +467,7 @@ void loop()
 // void loop() {
 //   // test Tof sensors by printing values to serial
 //   tof = checkToFSensors(100); // Check with a range limit of 100mm
-//   Serial.printf("FL: %d mm, \tFR: %d mm, \tL: %d mm, \tR: %d mm", tof.FL, tof.FR, tof.L, tof.R);
+//   Serial.printf("LEFT: %d mm, \tRIGHT: %d mm, \tCENTER: %d mm", tof.L, tof.R, tof.C);
 //   Serial.println();
 //   delay(200); // Print every 200ms
 // }
