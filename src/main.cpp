@@ -7,6 +7,7 @@
 #define RF_ON_PIN 4        // Pin for RF remote control (same as IR remote pin for simplicity)
 #define RF_OFF_PIN 25      // Pin for RF remote control (not used in this code, but can be added for future functionality)
 #define ROBOT_STATUS_LED 5 // LED to indicate robot status (on/off)
+#define BUILT_IN_LED 2      // Built-in LED for additional status indication (optional)
 
 // Rhino Motor Driver Pins
 #define DIR1 12
@@ -44,7 +45,7 @@ bool debug = true;    // Set to true for debugging
 #define SEARCH_SPEED 30            // Speed for searching
 #define TURN_DELAY 100             // Delay for turning in milliseconds
 #define BACK_SPEED 150             // Speed for moving backward
-const int SEARCH_RANGE = 100;     // Range to search for opponent in mm
+const int SEARCH_RANGE = 300;     // Range to search for opponent in mm
 bool turnDirection = 0;            // 0: left, 1: right
 const int LEFT_MOTOR_SPEED = 255;  // Speed for left motor
 const int RIGHT_MOTOR_SPEED = 255; // Speed for right motor
@@ -318,12 +319,12 @@ void attackTarget(const ToFResult &tof)
     turnDirection = 0;
     if(tof.L < 80) {
       // opponent on left: turn in place left to reacquire
-      motorControl(LEFT_MOTOR_SPEED, -RIGHT_MOTOR_SPEED);
+      motorControl(-LEFT_MOTOR_SPEED, RIGHT_MOTOR_SPEED);
       Serial.println("Attacking target - turning left");
     } else {
       // opponent on left: turn in place left to reacquire
       turnDirection = 0;
-      motorControl(TURN_SPEED, -TURN_SPEED);
+      motorControl(-TURN_SPEED, TURN_SPEED);
       Serial.println("Attacking target - turning left");
     }
   }
@@ -332,12 +333,12 @@ void attackTarget(const ToFResult &tof)
     // opponent on right: turn in place right to reacquire
     turnDirection = 1;
     if(tof.R < 80) {
-      motorControl(-LEFT_MOTOR_SPEED, RIGHT_MOTOR_SPEED);
+      motorControl(LEFT_MOTOR_SPEED, -RIGHT_MOTOR_SPEED);
       Serial.println("Attacking target - turning right");
     } else {
       // opponent on right: turn in place right to reacquire
       turnDirection = 1;
-      motorControl(-TURN_SPEED, TURN_SPEED);
+      motorControl(TURN_SPEED, -TURN_SPEED);
       Serial.println("Attacking target - turning right");
     }
   }
@@ -383,7 +384,9 @@ void setup()
   pinMode(RF_ON_PIN, INPUT);
   pinMode(RF_OFF_PIN, INPUT);
   pinMode(ROBOT_STATUS_LED, OUTPUT);
+  pinMode(BUILT_IN_LED, OUTPUT);
   digitalWrite(ROBOT_STATUS_LED, LOW); // Turn OFF status LED to indicate robot
+  digitalWrite(BUILT_IN_LED, LOW); // Turn OFF built-in LED
 
   // turn off motors at startup
   motorControl(0, 0);
@@ -398,11 +401,14 @@ void setup()
 void loop()
 {
 
-  if (digitalRead(RF_ON_PIN) == HIGH)
+  if (digitalRead(RF_ON_PIN) == HIGH){
     isRunning = true; // Start the robot if RF ON signal is received
-  if (digitalRead(RF_OFF_PIN) == HIGH)
+  }
+  if (digitalRead(RF_OFF_PIN) == HIGH){
     isRunning = false;                                    // Stop the robot if RF OFF signal is received
+  }
   digitalWrite(ROBOT_STATUS_LED, isRunning ? HIGH : LOW); // Update status LED based on running state
+  digitalWrite(BUILT_IN_LED, isRunning ? HIGH : LOW);     // Update built-in LED based on running state
 
   if (!isRunning)
   {
@@ -460,7 +466,7 @@ void loop()
 
 // Test the motors
 // void loop() {
-//   motorControl(0, 100);
+//   motorControl(100, 0);
 // }
 
 
