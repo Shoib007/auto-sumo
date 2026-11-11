@@ -1,3 +1,5 @@
+// This sumo has only tree ToF Sensor
+
 #include <Arduino.h>
 #include <Wire.h>
 #include <VL53L0X.h>
@@ -43,6 +45,7 @@ bool debug = true;    // Set to true for debugging
 #define TURN_DELAY 100             // Delay for turning in milliseconds
 #define BACK_SPEED 150             // Speed for moving backward
 const int SEARCH_RANGE = 500;     // Range to search for opponent in mm
+const int CLOSE_ROBOT_RANGE = 150;     // Range to search for opponent in mm
 bool turnDirection = 0;            // 0: left, 1: right
 const int LEFT_MOTOR_SPEED = 255;  // Speed for left motor
 const int RIGHT_MOTOR_SPEED = 255; // Speed for right motor
@@ -316,7 +319,7 @@ void attackTarget(const ToFResult &tof)
   else if (tof.L_inRange)
   {
     turnDirection = 0;
-    if(tof.L < 80) {
+    if(tof.L < CLOSE_ROBOT_RANGE) {
       // opponent on left: turn in place left to reacquire
       motorControl(LEFT_MOTOR_SPEED, -RIGHT_MOTOR_SPEED);
       Serial.println("Attacking target - turning left");
@@ -331,7 +334,7 @@ void attackTarget(const ToFResult &tof)
   {
     // opponent on right: turn in place right to reacquire
     turnDirection = 1;
-    if(tof.R < 80) {
+    if(tof.R < CLOSE_ROBOT_RANGE) {
       motorControl(-LEFT_MOTOR_SPEED, RIGHT_MOTOR_SPEED);
       Serial.println("Attacking target - turning right");
     } else {
