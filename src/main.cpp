@@ -7,7 +7,7 @@
 #define RF_ON_PIN 4        // Pin for RF remote control (same as IR remote pin for simplicity)
 #define RF_OFF_PIN 25      // Pin for RF remote control (not used in this code, but can be added for future functionality)
 #define ROBOT_STATUS_LED 5 // LED to indicate robot status (on/off)
-#define BUILT_IN_LED 2      // Built-in LED for additional status indication (optional)
+#define BUILT_IN_LED 2     // Built-in LED for additional status indication (optional)
 
 // Rhino Motor Driver Pins
 #define DIR1 12
@@ -45,10 +45,10 @@ bool debug = true;    // Set to true for debugging
 #define SEARCH_SPEED 30            // Speed for searching
 #define TURN_DELAY 100             // Delay for turning in milliseconds
 #define BACK_SPEED 150             // Speed for moving backward
-const int SEARCH_RANGE = 300;     // Range to search for opponent in mm
+const int SEARCH_RANGE = 1500;     // Range to search for opponent in mm
 bool turnDirection = 0;            // 0: left, 1: right
-const int LEFT_MOTOR_SPEED = 255;  // Speed for left motor
-const int RIGHT_MOTOR_SPEED = 255; // Speed for right motor
+const int LEFT_MOTOR_SPEED = 200;  // Speed for left motor
+const int RIGHT_MOTOR_SPEED = 200; // Speed for right motor
 bool isRushing = true;
 unsigned long rushLimit = 500; // Time limit for rushing (ms)
 
@@ -368,7 +368,7 @@ void setup()
   initSensor(LToF, 0x31, VL53L0X_XSHUT1);
   initSensor(FLToF, 0x30, VL53L0X_XSHUT2);
   initSensor(RToF, 0x33, VL53L0X_XSHUT3);
-  initSensor(FRToF, 0x34, VL53L0X_XSHUT4);
+   initSensor(FRToF, 0x34, VL53L0X_XSHUT4);
   delay(100); // Allow sensors to stabilize
 
   pinMode(DIR1, OUTPUT);
@@ -398,10 +398,12 @@ void setup()
 
 // Main loop for robot control
 
-void loop()
-{
+void loop() {
 
   if (digitalRead(RF_ON_PIN) == HIGH){
+    digitalWrite(ROBOT_STATUS_LED, HIGH); // Turn ON status LED to indicate robot is running
+    digitalWrite(BUILT_IN_LED, HIGH);      // Turn ON built-in LED to indicate robot is running
+    delay(5000); // Wait for 5 seconds to ensure the robot is ready
     isRunning = true; // Start the robot if RF ON signal is received
   }
   if (digitalRead(RF_OFF_PIN) == HIGH){
@@ -422,8 +424,7 @@ void loop()
   // use rushLimit variable
   // this should be asyncronous so that it does'nt block other function
 
-  if (isRushing)
-  {
+  if (isRushing) {
     motorControl(LEFT_MOTOR_SPEED - 100, RIGHT_MOTOR_SPEED - 100);
     delay(rushLimit);        // Rush for 500ms
     isRushing = false; // Stop rushing after the first loop iteration
@@ -433,30 +434,26 @@ void loop()
   avoidEdge();
 
   // If we're avoiding edge, don't do anything else
-  if (isAvoidingEdge)
-  {
+  if (isAvoidingEdge) {
     return;
   }
 
   // PRIORITY 2: Attack or search (only if not avoiding edge)
   tof = checkToFSensors(SEARCH_RANGE);
 
-  if (tof.inRange)
-  {
+  if (tof.inRange) {
     // Check edge sensors one more time before aggressive attack moves
     // This double-check helps prevent missing the edge when chasing opponents
     LIR_val = digitalRead(IR_LEFT);
     RIR_val = digitalRead(IR_RIGHT);
-    if (LIR_val == LOW || RIR_val == LOW)
-    {
+    if (LIR_val == LOW || RIR_val == LOW) {
       avoidEdge(); // Re-run edge avoidance if we detect an edge
       return;
     }
 
     attackTarget(tof); // Only attack if edge is clear
   }
-  else
-  {
+  else {
     searchOpponent();
   }
 
@@ -466,7 +463,7 @@ void loop()
 
 // Test the motors
 // void loop() {
-//   motorControl(100, 0);
+//   motorControl(100, -100);
 // }
 
 
